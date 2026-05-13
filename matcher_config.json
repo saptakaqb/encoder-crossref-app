@@ -1,0 +1,156 @@
+{
+  "_description": "Encoder cross-reference scoring configuration. Edit weights, tier assignments, and compatibility matrices here. No code changes needed for weight/tier adjustments. Adding a NEW rule or scoring method type requires a developer to register it in matcher.py.",
+  "_version": "1.0",
+  "_last_updated": "2026-05-11",
+
+  "_weight_rules": [
+    "tier2 field weights must sum to 1.0",
+    "tier3 field weights must sum to 1.0",
+    "tier2_weight + tier3_weight must equal 1.0",
+    "To move a field between tiers: remove from one block, add to other, rebalance both to sum to 1.0"
+  ],
+
+  "tier2_weight": 0.70,
+  "tier3_weight": 0.30,
+
+  "_tier1_note": "Hard stops — candidate is excluded entirely (score=0) if any rule fails. Rules reference named implementations in matcher.py. Params are passed through to the rule function.",
+
+  "tier1_hard_stops": [
+    {
+      "field":       "shaft_type",
+      "rule":        "exact_match",
+      "description": "Solid vs hollow shaft are physically incompatible — no adapter possible."
+    },
+    {
+      "field":       "shaft_bore_diameter_mm",
+      "rule":        "within_tolerance_pct",
+      "params":      { "tolerance_pct": 10, "condition": "hollow_only" },
+      "description": "Hollow bore must match within 10%. Only applies when shaft_type is hollow_blind or hollow_thru. Solid-shaft rows skip this rule."
+    },
+    {
+      "field":       "output_voltage_class",
+      "rule":        "forbidden_pairs",
+      "params":      { "pairs": [["low", "high"], ["high", "low"]] },
+      "description": "TTL/OC (low) and HTL (high) are electrically incompatible — different signal levels. low↔low and universal↔anything are allowed."
+    }
+  ],
+
+  "_tier2_note": "Near-hard physical parameters. High weight. Weights must sum to 1.0. connection_type_canonical elevated from T3 to T2 — connector mismatch requires hardware change and is a strong compatibility signal.",
+
+  "tier2": {
+    "cpr_values": {
+      "weight":      0.30,
+      "method":      "cpr_list_intersection",
+      "description": "CPR coverage: list intersection recall (how much of source CPR set candidate covers). Programmable candidate gets range-coverage score."
+    },
+    "ip_rating": {
+      "weight":      0.20,
+      "method":      "directional_gte",
+      "params":      { "mode": "step", "tolerance": 1, "partial_score": 0.5 },
+      "description": "Candidate IP must meet or exceed source. One level below = 0.5. Two or more below = 0.0."
+    },
+    "connection_type_canonical": {
+      "weight":      0.15,
+      "method":      "conn_compat_matrix",
+      "description": "Connector type compatibility. Exact match=1.0. Similar form factor (M12↔M23)=0.5. Adapter possible but non-trivial=0.3. Default for unlisted pairs=0.1."
+    },
+    "output_circuit_canonical": {
+      "weight":      0.15,
+      "method":      "oc_compat_matrix",
+      "description": "Output circuit compatibility via matrix. Push-Pull↔TTL RS422=0.4 (electrical risk). Cross to OC=0.1-0.2."
+    },
+    "housing_diameter_mm": {
+      "weight":      0.10,
+      "method":      "housing_diameter_score",
+      "description": "Housing diameter proximity. Tight tolerance=full score, loose tolerance=partial. Score degrades linearly beyond loose band."
+    },
+    "shaft_bore_diameter_mm": {
+      "weight":      0.10,
+      "method":      "bore_diameter_score",
+      "description": "Bore diameter proximity (hollow shaft only). Tighter tolerance than housing — mechanical fit is critical."
+    }
+  },
+
+  "_tier3_note": "Secondary parameters. Lower weight, null-redistributed if missing. Weights must sum to 1.0. operating_temp moved up from 0.10 to 0.15 to fill connection_type's vacated slot.",
+
+  "tier3": {
+    "supply_voltage": {
+      "weight":      0.25,
+      "method":      "voltage_range_overlap",
+      "description": "Overlap of source and candidate supply voltage ranges. Uses supply_voltage_min_v + supply_voltage_max_v from both sides."
+    },
+    "sensing_method": {
+      "weight":      0.20,
+      "method":      "exact_match_score",
+      "description": "Sensing technology (optical/magnetic). Exact match=1.0. Mismatch=0.5 (different technology but functionally equivalent in most industrial contexts)."
+    },
+    "operating_temp_max_c": {
+      "weight":      0.15,
+      "method":      "directional_gte",
+      "params":      { "mode": "ratio", "tolerance": 5.0 },
+      "description": "Candidate max operating temp must meet or exceed source. 5°C tolerance band before penalty. Ratio score below tolerance."
+    },
+    "shock_resistance_ms2": {
+      "weight":      0.15,
+      "method":      "directional_gte",
+      "params":      { "mode": "ratio" },
+      "description": "Candidate shock rating must meet or exceed source. Ratio score if below."
+    },
+    "shaft_load_radial_n": {
+      "weight":      0.10,
+      "method":      "directional_gte",
+      "params":      { "mode": "ratio" },
+      "description": "Candidate radial shaft load must meet or exceed source. Ratio score if below."
+    },
+    "vibration_resistance_ms2": {
+      "weight":      0.10,
+      "method":      "directional_gte",
+      "params":      { "mode": "ratio" },
+      "description": "Candidate vibration rating must meet or exceed source. Ratio score if below."
+    },
+    "connector_pins": {
+      "weight":      0.05,
+      "method":      "connector_pins_score",
+      "description": "Connector pin count proximity. Exact=1.0. Score degrades linearly with difference up to max_diff."
+    }
+  },
+
+  "_scoring_params_note": "Numeric parameters for scoring methods. Adjustable without touching code.",
+
+  "scoring_params": {
+    "housing_diameter_tight_mm":  2.0,
+    "housing_diameter_loose_mm":  5.0,
+    "bore_diameter_tight_mm":     0.1,
+    "bore_diameter_loose_mm":     2.0,
+    "connector_pins_max_diff":    10
+  },
+
+  "_compat_matrices_note": "Compatibility lookup tables. Rows = source value, columns = candidate value. Missing pairs use default_score. Matrices are directional — source→candidate and candidate→source can differ.",
+
+  "compatibility_matrices": {
+
+    "output_circuit": {
+      "_note": "Electrical output circuit compatibility. Sin/Cos is analog — never compatible with digital types.",
+      "default_score": 0.0,
+      "matrix": {
+        "Push-Pull":      { "Push-Pull": 1.0, "TTL RS422": 0.4, "Open Collector": 0.2, "Sin/Cos": 0.0 },
+        "TTL RS422":      { "TTL RS422": 1.0, "Push-Pull": 0.4, "Open Collector": 0.1, "Sin/Cos": 0.0 },
+        "Open Collector": { "Open Collector": 1.0, "Push-Pull": 0.2, "TTL RS422": 0.1, "Sin/Cos": 0.0 },
+        "Sin/Cos":        { "Sin/Cos": 1.0, "Push-Pull": 0.0, "TTL RS422": 0.0, "Open Collector": 0.0 }
+      }
+    },
+
+    "connection_type": {
+      "_note": "Connector type compatibility. M12↔M23 adapters exist and are common. Cable-to-connector requires assembly but is feasible. MS/MIL is more specialized.",
+      "default_score": 0.1,
+      "matrix": {
+        "cable":   { "cable": 1.0, "M8": 0.3, "M12": 0.3, "M23": 0.3, "MS_MIL": 0.3, "DSub": 0.2 },
+        "M8":      { "M8": 1.0, "cable": 0.3, "M12": 0.3, "M23": 0.2, "MS_MIL": 0.2, "DSub": 0.1 },
+        "M12":     { "M12": 1.0, "cable": 0.3, "M8": 0.3, "M23": 0.5, "MS_MIL": 0.3, "DSub": 0.1 },
+        "M23":     { "M23": 1.0, "cable": 0.3, "M8": 0.2, "M12": 0.5, "MS_MIL": 0.4, "DSub": 0.1 },
+        "MS_MIL":  { "MS_MIL": 1.0, "cable": 0.3, "M8": 0.2, "M12": 0.3, "M23": 0.4, "DSub": 0.1 },
+        "DSub":    { "DSub": 1.0, "cable": 0.2, "M8": 0.1, "M12": 0.1, "M23": 0.1, "MS_MIL": 0.1 }
+      }
+    }
+  }
+}
