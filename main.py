@@ -34,7 +34,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from auth import (
     authenticate_user, create_token, get_current_user,
@@ -677,7 +677,8 @@ class CreateUserRequest(BaseModel):
     direction:       str       = "source_only"
     client:          str       = ""
 
-    @validator("client")
+    @field_validator("client")
+    @classmethod
     def client_must_be_valid(cls, v):
         if v and v not in VALID_MANUFACTURERS:
             raise ValueError(f"client must be one of {sorted(VALID_MANUFACTURERS)} or empty")
