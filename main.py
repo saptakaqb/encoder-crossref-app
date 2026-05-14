@@ -19,7 +19,9 @@ AQB Solutions | May 2026
 """
 
 import json
+import math
 import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -28,17 +30,17 @@ from typing import List, Optional
 
 import pandas as pd
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 
 from auth import (
     authenticate_user, create_token, get_current_user,
     increment_search_count, add_history, get_history,
     get_all_users_for_client, require_admin, update_user,
-    store_session,
+    store_session, log_error, get_user_errors, add_heartbeat,
 )
 from db_load import get_connection, find_parts, download_silver_locally, SILVER_VIEW
 from matcher import load_config, match, dedup_by_family
@@ -119,6 +121,26 @@ async def serve_jsx():
 
 
 # ── Health check ────────────────────────────────────────────────────────────
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve encoder wheel as inline SVG favicon — eliminates browser 404 noise."""
+    from fastapi.responses import Response
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+        '<circle cx="16" cy="16" r="16" fill="#1855d4"/>'
+        '<circle cx="16" cy="16" r="12" fill="none" stroke="white" stroke-width="2"/>'
+        '<circle cx="16" cy="16" r="6" fill="none" stroke="white" stroke-width="2"/>'
+        '<circle cx="16" cy="16" r="2.5" fill="white"/>'
+        '<line x1="16" y1="4" x2="16" y2="10" stroke="white" stroke-width="1.8" stroke-linecap="round"/>'
+        '<line x1="16" y1="22" x2="16" y2="28" stroke="white" stroke-width="1.8" stroke-linecap="round"/>'
+        '<line x1="4" y1="16" x2="10" y2="16" stroke="white" stroke-width="1.8" stroke-linecap="round"/>'
+        '<line x1="22" y1="16" x2="28" y2="16" stroke="white" stroke-width="1.8" stroke-linecap="round"/>'
+        '</svg>'
+    )
+    return Response(content=svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
@@ -164,9 +186,12 @@ async def health_db():
 
 # ── Request / Response models ───────────────────────────────────────────────
 
+VALID_MANUFACTURERS = {"kubler", "epc", "sick", "posital"}
+
 class LoginRequest(BaseModel):
-    email:    str
-    password: str
+    email:    str = Field(..., min_length=1, description="User email address")
+    password: str = Field(..., min_length=1)
+
 
 class MatchRequest(BaseModel):
     part_number:    str
@@ -219,8 +244,8 @@ def _safe_user(user: dict) -> dict:
         "name":               user.get("name"),
         "role":               user.get("role"),
         "client":             user.get("client"),
-        "searches_used":      used_today,        # today's count (frontend unchanged)
-        "searches_limit":     limit,             # now = daily limit
+        "searches_used":      used_today,
+        "searches_limit":     limit,
         "searches_remaining": max(0, limit - used_today),
         "allowed_sources":    user.get("allowed_sources", []),
         "allowed_targets":    user.get("allowed_targets", []),
@@ -229,6 +254,18 @@ def _safe_user(user: dict) -> dict:
         "admin_email":        user.get("admin_email"),
         "last_search_date":   last_date,
     }
+
+
+def _admin_user(user: dict) -> dict:
+    """Extended user dict for admin views — includes tracking fields."""
+    base = _safe_user(user)
+    base.update({
+        "created_at":               user.get("created_at", ""),
+        "last_login":               user.get("last_login", ""),
+        "last_seen":                user.get("last_seen", ""),
+        "total_time_spent_minutes": int(user.get("total_time_spent_minutes", 0)),
+    })
+    return base
 
 
 # ── Match endpoint ──────────────────────────────────────────────────────────
@@ -304,12 +341,16 @@ async def run_match(body: MatchRequest, user: dict = Depends(get_current_user)):
             print(f"  [match] target={target_mfr} → {len(scored):,} scored | {round(time.time()-t_target,2)}s")
         except ValueError as e:
             # Part not found — propagate clearly
+            log_error(email, "/api/match", 404, str(e),
+                      {"part": body.part_number, "source": body.source_mfr, "target": target_mfr})
             raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             # Surface the real error — don't swallow it
             import traceback
             tb = traceback.format_exc()
             print(f"  [match] EXCEPTION for target={target_mfr}: {e}\n{tb}")
+            log_error(email, "/api/match", 500, str(e),
+                      {"part": body.part_number, "source": body.source_mfr, "target": target_mfr})
             raise HTTPException(
                 status_code=500,
                 detail=f"Match engine error ({target_mfr}): {str(e)}"
@@ -387,7 +428,7 @@ ALL_MANUFACTURERS = ["kubler", "epc", "sick", "posital"]
 
 @app.get("/api/parts/detect")
 async def detect_part_manufacturer(
-    q:    str,
+    q:    str = Query(..., min_length=1, description="Part number fragment to detect"),
     user: dict = Depends(get_current_user),
 ):
     """
@@ -418,6 +459,15 @@ async def detect_part_manufacturer(
 
 # ── Parts browser ───────────────────────────────────────────────────────────
 
+def _clean_records(df) -> list:
+    """Convert DataFrame to JSON-safe records — replaces float nan with None."""
+    records = df.to_dict(orient="records")
+    return [
+        {k: (None if isinstance(v, float) and math.isnan(v) else v)
+         for k, v in row.items()}
+        for row in records
+    ]
+
 @app.get("/api/parts")
 async def browse_parts(
     mfr:      str,
@@ -436,7 +486,7 @@ async def browse_parts(
     finally:
         con.close()
 
-    return {"parts": df.to_dict(orient="records"), "count": len(df)}
+    return {"parts": _clean_records(df), "count": len(df)}
 
 
 # ── History ─────────────────────────────────────────────────────────────────
@@ -525,6 +575,13 @@ async def explain_match(body: ExplainRequest):
         if field in t3_data:
             scored_lines.append(field_line("T3", field, t3_data[field]))
 
+    # Guard: if there is no scored feature data, we cannot generate a meaningful explanation.
+    if not scored_lines:
+        raise HTTPException(
+            status_code=422,
+            detail="Not enough scored feature data to generate an AI explanation for this result.",
+        )
+
     extra_lines = []
     for field, f in extra.items():
         src_native  = f.get("src_native_label") or f.get("label", field)
@@ -559,6 +616,9 @@ Structure your response:
 
 Use each manufacturer's own field name (as given above) when referring to parameters. Be concise and technical. Use real units."""
 
+    api_error: Optional[HTTPException] = None
+    raw_text: Optional[str] = None
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -570,7 +630,7 @@ Use each manufacturer's own field name (as given above) when referring to parame
                 },
                 json={
                     "model": model,
-                    "max_tokens": 1000,
+                    "max_tokens": 4000,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
@@ -578,24 +638,50 @@ Use each manufacturer's own field name (as given above) when referring to parame
         if resp.status_code != 200:
             err_msg = data.get("error", {}).get("message", resp.text)
             print(f"[explain] Claude API error {resp.status_code}: {err_msg}")
-            raise HTTPException(status_code=502, detail=f"Claude API {resp.status_code}: {err_msg}")
-        raw = "".join(b.get("text", "") for b in data.get("content", []))
-        cleaned = raw.replace("```json", "").replace("```", "").strip()
-        blocks = json.loads(cleaned)
-        return {"blocks": blocks if isinstance(blocks, list) else []}
+            api_error = HTTPException(status_code=502, detail=f"Claude API {resp.status_code}: {err_msg}")
+        else:
+            raw_text = "".join(b.get("text", "") for b in data.get("content", []))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI explanation failed: {str(e)}")
+        log_error("anonymous", "/api/explain", 500, f"request failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI explanation request failed: {str(e)}")
+
+    # Raise API-level errors outside the httpx try block so they are not re-caught
+    if api_error:
+        raise api_error
+
+    try:
+        print(f"[explain] raw response ({len(raw_text)} chars): {raw_text[:300]!r}")
+        cleaned = raw_text.replace("```json", "").replace("```", "").strip()
+        if not cleaned.startswith("["):
+            m = re.search(r'\[[\s\S]*\]', cleaned)
+            if not m:
+                raise ValueError(f"No JSON array found in response: {cleaned[:200]!r}")
+            cleaned = m.group(0)
+        blocks = json.loads(cleaned)
+        if not isinstance(blocks, list):
+            raise ValueError(f"Expected JSON array, got {type(blocks).__name__}")
+        return {"blocks": blocks}
+    except Exception as e:
+        print(f"[explain] parse failed: {e} | raw={raw_text[:500]!r}")
+        log_error("anonymous", "/api/explain", 500, f"parse failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI explanation response parse failed: {str(e)}")
 
 
 class CreateUserRequest(BaseModel):
     name:            str
     email:           str
     password:        str
-    searches_limit:  int       = 50
+    searches_limit:  int       = Field(50, ge=0, description="Daily search limit; 0 = locked account")
     allowed_sources: List[str] = []
     allowed_targets: List[str] = []
     direction:       str       = "source_only"
     client:          str       = ""
+
+    @validator("client")
+    def client_must_be_valid(cls, v):
+        if v and v not in VALID_MANUFACTURERS:
+            raise ValueError(f"client must be one of {sorted(VALID_MANUFACTURERS)} or empty")
+        return v
 
 
 # ── Admin endpoints ─────────────────────────────────────────────────────────
@@ -615,21 +701,24 @@ async def create_user(
     client = body.client or admin.get("client", "")
 
     new_user = {
-        "userId":              body.email,
-        "email":               body.email,
-        "name":                body.name,
-        "password_hash":       hash_password(body.password),
-        "role":                "enduser",
-        "client":              client,
-        "searches_used_today": 0,
-        "last_search_date":    "",
-        "searches_limit":      body.searches_limit,
-        "allowed_sources":     body.allowed_sources,
-        "allowed_targets":     body.allowed_targets,
-        "direction":           body.direction,
-        "status":              "active",
-        "admin_email":         admin.get("userId", ""),
-        "created_at":          _dt.utcnow().isoformat(),
+        "userId":                   body.email,
+        "email":                    body.email,
+        "name":                     body.name,
+        "password_hash":            hash_password(body.password),
+        "role":                     "enduser",
+        "client":                   client,
+        "searches_used_today":      0,
+        "last_search_date":         "",
+        "searches_limit":           body.searches_limit,
+        "allowed_sources":          body.allowed_sources,
+        "allowed_targets":          body.allowed_targets,
+        "direction":                body.direction,
+        "status":                   "active",
+        "admin_email":              admin.get("userId", ""),
+        "created_at":               _dt.utcnow().isoformat(),
+        "last_login":               "",
+        "last_seen":                "",
+        "total_time_spent_minutes": 0,
     }
 
     from auth import get_dynamo, USERS_TABLE
@@ -645,7 +734,7 @@ async def list_users(admin: dict = Depends(require_admin)):
         users = get_all_users()
     else:
         users = get_all_users_for_client(admin["client"])
-    return {"users": [_safe_user(u) for u in users], "count": len(users)}
+    return {"users": [_admin_user(u) for u in users], "count": len(users)}
 
 
 @app.delete("/api/admin/users/{user_id}")
@@ -675,6 +764,51 @@ async def update_user_constraints(
         raise HTTPException(status_code=400, detail="No fields to update")
     update_user(target, updates)
     return {"status": "updated", "userId": target, "updates": updates}
+
+
+# ── Heartbeat — time tracking ────────────────────────────────────────────────
+
+@app.post("/api/auth/heartbeat")
+async def heartbeat(user: dict = Depends(get_current_user)):
+    """
+    Called every 5 minutes by the frontend while the tab is active.
+    Atomically increments total_time_spent_minutes in the user record.
+    """
+    add_heartbeat(user["userId"], minutes=5)
+    return {"ok": True}
+
+
+# ── Admin per-user analytics endpoints ──────────────────────────────────────
+
+@app.get("/api/admin/users/{email}/history")
+async def get_user_history_admin(
+    email: str,
+    limit: int = 50,
+    admin: dict = Depends(require_admin),
+):
+    """Return search history for any user. Admin only."""
+    from auth import get_history as _get_hist
+    records = _get_hist(email, limit=limit)
+    # Coerce numeric strings back to float for frontend
+    for r in records:
+        for field in ("top_score", "elapsed_s"):
+            if field in r and r[field] is not None:
+                try:
+                    r[field] = float(r[field])
+                except (TypeError, ValueError):
+                    r[field] = None
+    return {"history": records, "count": len(records), "email": email}
+
+
+@app.get("/api/admin/users/{email}/errors")
+async def get_user_errors_admin(
+    email: str,
+    limit: int = 50,
+    admin: dict = Depends(require_admin),
+):
+    """Return error log for any user. Admin only."""
+    records = get_user_errors(email, limit=limit)
+    return {"errors": records, "count": len(records), "email": email}
 
 
 # ── Run directly ─────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ LOCAL_SILVER_GLOB = f"{LOCAL_SILVER_DIR}/manufacturer=*/data.parquet"
 # Name of the DuckDB view the matcher queries against
 SILVER_VIEW = "silver"
 
-# ── S3 → local Silver download (boto3, works on Fargate task role) ────────────
+# ── S3 -> local Silver download (boto3, works on Fargate task role) ────────────
 
 def download_silver_locally() -> bool:
     """
@@ -88,9 +88,9 @@ def download_silver_locally() -> bool:
                 if not key.endswith(".parquet"):
                     continue
 
-                # Strip the S3 prefix → relative path under LOCAL_SILVER_DIR
+                # Strip the S3 prefix -> relative path under LOCAL_SILVER_DIR
                 # e.g. encoder_pipeline/silver/manufacturer=kubler/data.parquet
-                #   →  manufacturer=kubler/data.parquet
+                #   ->  manufacturer=kubler/data.parquet
                 rel   = key[len(prefix):]
                 local = os.path.join(LOCAL_SILVER_DIR, rel)
                 os.makedirs(os.path.dirname(local), exist_ok=True)
@@ -100,7 +100,7 @@ def download_silver_locally() -> bool:
                     continue
 
                 size_mb = round(obj["Size"] / 1_048_576, 1)
-                log.info(f"  Downloading {key} ({size_mb} MB) → {local}")
+                log.info(f"  Downloading {key} ({size_mb} MB) -> {local}")
                 s3_client.download_file(S3_BUCKET, key, local)
                 downloaded += 1
 
@@ -183,7 +183,7 @@ def get_connection() -> duckdb.DuckDBPyConnection:
 
     con.execute(f"PRAGMA threads={DUCKDB_THREADS};")
     # Use MB to avoid unit-parsing issues across DuckDB versions / platforms.
-    # Parse DUCKDB_MEMORY env var (e.g. "6GB" → 6144 MB), fallback to 6144 MB.
+    # Parse DUCKDB_MEMORY env var (e.g. "6GB" -> 6144 MB), fallback to 6144 MB.
     _mem_raw = os.environ.get("DUCKDB_MEMORY", "6GB").strip().upper()
     _mem_mb  = (
         int(_mem_raw.replace("GB","").strip()) * 1024 if "GB" in _mem_raw else
@@ -233,9 +233,9 @@ def _parse_order_code(order_code: str) -> dict:
       raw_tokens — all split tokens for debugging
 
     Handles formats:
-      Kübler:  "8.KIS40.1342.1024"  → family=KIS40, ppr=1024
-      EPC:     "EPC-755A-S-1024-A"  → family=755A,  ppr=1024
-      Sick:    "DFS60E-S4EA01024"   → family=DFS60E, ppr=None (embedded, not split)
+      Kübler:  "8.KIS40.1342.1024"  -> family=KIS40, ppr=1024
+      EPC:     "EPC-755A-S-1024-A"  -> family=755A,  ppr=1024
+      Sick:    "DFS60E-S4EA01024"   -> family=DFS60E, ppr=None (embedded, not split)
     """
     import re
     tokens = re.split(r"[._-]", order_code)
@@ -275,8 +275,8 @@ def fetch_part(con: duckdb.DuckDBPyConnection,
        whose product_family matches AND whose cpr_values contains the PPR.
        If multiple variants match (different connection type / output circuit),
        returns all of them so the caller can prompt the user to disambiguate.
-       e.g. "8.KIS40.1342.1024" → family=KIS40, ppr=1024
-            → finds KIS40 variants where cpr_values contains 1024
+       e.g. "8.KIS40.1342.1024" -> family=KIS40, ppr=1024
+            -> finds KIS40 variants where cpr_values contains 1024
 
     3. Family-only LIKE fallback  — if no PPR could be parsed, searches for
        any Silver row whose part_number contains the family token.
@@ -286,7 +286,7 @@ def fetch_part(con: duckdb.DuckDBPyConnection,
     That will make the lookup exact and remove the need for heuristic parsing.
     See: PIPELINE_CONTEXT_MAY11_2026.md § base_order_code
 
-    Returns a dict of field→value for a single matched row,
+    Returns a dict of field->value for a single matched row,
     or None if nothing found.
     If stage 2 returns multiple variants, prints a disambiguation table
     and returns the first row (best guess by Silver sort order).
@@ -329,7 +329,7 @@ def fetch_part(con: duckdb.DuckDBPyConnection,
         """, [manufacturer, family, ppr_pattern, ppr, ppr]).fetchdf()
 
         if not candidates.empty:
-            print(f"  [fetch_part] Parsed '{part_number}' → "
+            print(f"  [fetch_part] Parsed '{part_number}' -> "
                   f"family='{family}', PPR={ppr}")
             if len(candidates) == 1:
                 print(f"  [fetch_part] Matched: {candidates.iloc[0]['part_number']}")
@@ -356,7 +356,7 @@ def fetch_part(con: duckdb.DuckDBPyConnection,
         if not rows.empty:
             matched = rows.iloc[0]["part_number"]
             print(f"  [fetch_part] No PPR match for '{part_number}'. "
-                  f"Family-only fallback → '{matched}'")
+                  f"Family-only fallback -> '{matched}'")
             return rows.iloc[0].to_dict()
 
     return None
@@ -419,15 +419,15 @@ def fetch_candidates(con: duckdb.DuckDBPyConnection,
     T1 SQL pre-filter: returns candidate rows for Python scoring.
 
     Hard stops in SQL (benefits from Silver sort order + hive partitioning):
-      - manufacturer = target            → reads single partition file
-      - shaft_type exact match           → row-group pruning (sorted first)
-      - output_voltage_class exact match → row-group pruning (sorted second)
+      - manufacturer = target            -> reads single partition file
+      - shaft_type exact match           -> row-group pruning (sorted first)
+      - output_voltage_class exact match -> row-group pruning (sorted second)
 
     Soft IP filter (tolerance: candidate ip_rating >= src_ip_rating - 2):
       When src_ip_rating is provided, candidates clearly below the source IP
       are excluded. Tolerance of 2 keeps borderline matches (IP62 for IP64 source)
       while cutting clearly incompatible products.
-      Example: KIS40 IP64 → excludes IP50 and below, keeps IP62/65/67/69K.
+      Example: KIS40 IP64 -> excludes IP50 and below, keeps IP62/65/67/69K.
       This reduces EPC candidates from ~80K to ~5-15K for typical queries.
 
     IP is still scored (not hard-stopped) — T2 penalises mismatches correctly.
@@ -458,7 +458,7 @@ def fetch_candidates(con: duckdb.DuckDBPyConnection,
         f"fetch_candidates | mfr={target_manufacturer} "
         f"shaft={shaft_type} voltage={output_voltage_class} "
         f"ip_floor={ip_floor if ip_floor is not None else 'none'} "
-        f"→ {len(result):,} rows | {elapsed}s"
+        f"-> {len(result):,} rows | {elapsed}s"
     )
     return result
 
@@ -503,7 +503,7 @@ def reset_cached_connection() -> None:
 
 def _sanity_check():
     """Quick validation: connect, count rows per manufacturer, sample one part."""
-    print("Connecting to DuckDB (httpfs → S3) ...")
+    print("Connecting to DuckDB (httpfs -> S3) ...")
     con = get_connection()
 
     print("\nRow counts per manufacturer:")
@@ -519,7 +519,7 @@ def _sanity_check():
     schema = con.execute(f"DESCRIBE {SILVER_VIEW}").fetchdf()
     print(schema.head(5).to_string(index=False))
 
-    print("\nSample T1 candidate fetch (solid / universal → epc):")
+    print("\nSample T1 candidate fetch (solid / universal -> epc):")
     candidates = fetch_candidates(
         con,
         shaft_type           = "solid",

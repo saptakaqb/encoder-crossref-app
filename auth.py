@@ -31,9 +31,10 @@ TOKEN_EXPIRE  = int(os.environ.get("TOKEN_EXPIRE_HOURS", 24))
 REGION        = os.environ.get("AWS_REGION", "ap-south-1")
 USERS_TABLE   = os.environ.get("DYNAMO_USERS_TABLE",   "encodermatch_users")
 HISTORY_TABLE = os.environ.get("DYNAMO_HISTORY_TABLE", "encodermatch_history")
+ERRORS_TABLE  = os.environ.get("DYNAMO_ERRORS_TABLE",  "encodermatch_errors")
 SES_SENDER    = os.environ.get("SES_SENDER_EMAIL", "")  # set once SES verified
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # ── DynamoDB client ────────────────────────────────────────────────────────
 _dynamo = None
@@ -197,7 +198,7 @@ def increment_search_count(email: str) -> dict:
     if used_today >= limit:
         _notify_limit_reached_async(user)
         raise HTTPException(
-            status_code=403,
+            status_code=429,
             detail=(
                 f"Daily search limit of {limit} reached. "
                 f"Resets at midnight UTC. "
@@ -229,7 +230,7 @@ def increment_search_count(email: str) -> dict:
         if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
             _notify_limit_reached_async(user)
             raise HTTPException(
-                status_code=403,
+                status_code=429,
                 detail=f"Daily search limit of {limit} reached. Resets at midnight UTC.",
             )
         raise
@@ -254,6 +255,60 @@ def get_history(email: str, limit: int = 20) -> list:
         Limit=limit,
     )
     return resp.get("Items", [])
+
+
+def log_error(email: str, endpoint: str, status_code: int, error_msg: str,
+              extra: dict | None = None) -> None:
+    """
+    Write an error event to encodermatch_errors.
+    Called on match/explain failures. Never raises — always fails silently.
+    """
+    try:
+        item = {
+            "userId":     email,
+            "timestamp":  datetime.utcnow().isoformat(),
+            "endpoint":   endpoint,
+            "status_code": status_code,
+            "error_msg":  str(error_msg)[:500],  # cap length
+        }
+        if extra:
+            item.update({k: str(v)[:200] for k, v in extra.items()})
+        get_dynamo().Table(ERRORS_TABLE).put_item(Item=item)
+    except Exception:
+        pass  # never crash on error logging
+
+
+def get_user_errors(email: str, limit: int = 50) -> list:
+    try:
+        table = get_dynamo().Table(ERRORS_TABLE)
+        resp  = table.query(
+            KeyConditionExpression=Key("userId").eq(email),
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+        return resp.get("Items", [])
+    except Exception:
+        return []
+
+
+def add_heartbeat(email: str, minutes: int = 5) -> None:
+    """
+    Atomically increment total_time_spent_minutes by `minutes`.
+    DynamoDB ADD creates the attribute if it doesn't exist.
+    Called every 5 min by the frontend while the tab is visible.
+    Never raises.
+    """
+    try:
+        get_dynamo().Table(USERS_TABLE).update_item(
+            Key={"userId": email},
+            UpdateExpression="ADD total_time_spent_minutes :m SET last_seen = :ts",
+            ExpressionAttributeValues={
+                ":m":  minutes,
+                ":ts": datetime.utcnow().isoformat(),
+            },
+        )
+    except Exception:
+        pass
 
 
 def get_all_users_for_client(client: str) -> list:
@@ -287,7 +342,7 @@ def update_user(email: str, updates: dict) -> None:
 # ── FastAPI dependencies ────────────────────────────────────────────────────
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
     """
     1. Decode JWT → (email, session_id).
@@ -295,6 +350,12 @@ def get_current_user(
     3. Compare token's session_id against active_session_id in DB.
        Mismatch = another login has superseded this session → 401.
     """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
     email, session_id = decode_token(token)
 

@@ -1,8 +1,11 @@
-# Secrets
+# ── Secrets ───────────────────────────────────────────────────────────────────
 config_claude.py
 .env
 
-# Python
+# ── AWS ───────────────────────────────────────────────────────────────────────
+*.pem
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -11,14 +14,24 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+venv/
+.venv/
 
-# Local Silver parquet files
+# ── Tests ─────────────────────────────────────────────────────────────────────
+tests/
+*.pytest_cache/
+.pytest_cache/
+test_results/
+*_results.txt
+
+# ── Local data files ──────────────────────────────────────────────────────────
 silver/
 /tmp/
-
-# AWS key files
-*.pem
-
-# Local DuckDB files
 *.duckdb
 *.db
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo

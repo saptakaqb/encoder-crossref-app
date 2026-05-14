@@ -20,6 +20,7 @@ from datetime import datetime
 REGION        = os.environ.get("AWS_REGION",           "ap-south-1")
 USERS_TABLE   = os.environ.get("DYNAMO_USERS_TABLE",   "encodermatch_users")
 HISTORY_TABLE = os.environ.get("DYNAMO_HISTORY_TABLE", "encodermatch_history")
+ERRORS_TABLE  = os.environ.get("DYNAMO_ERRORS_TABLE",  "encodermatch_errors")
 
 def hash_password(password: str) -> str:
     salt = "encodermatch_2026"
@@ -56,7 +57,24 @@ def create_tables(dynamo):
     else:
         print(f"  Table already exists: {HISTORY_TABLE}")
 
-    for name in [USERS_TABLE, HISTORY_TABLE]:
+    if ERRORS_TABLE not in existing:
+        dynamo.create_table(
+            TableName=ERRORS_TABLE,
+            KeySchema=[
+                {"AttributeName": "userId",    "KeyType": "HASH"},
+                {"AttributeName": "timestamp", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "userId",    "AttributeType": "S"},
+                {"AttributeName": "timestamp", "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        print(f"  Created table: {ERRORS_TABLE}")
+    else:
+        print(f"  Table already exists: {ERRORS_TABLE}")
+
+    for name in [USERS_TABLE, HISTORY_TABLE, ERRORS_TABLE]:
         dynamo.Table(name).wait_until_exists()
         print(f"  Table active: {name}")
 

@@ -506,12 +506,9 @@ function LoginPage({ onLogin, dark }) {
           <circle cx="250" cy="250" r="18" fill="none" stroke="white" strokeWidth="2"/>
           <circle cx="250" cy="250" r="6" fill="white" opacity="0.5"/>
         </svg>
-        <div style={{position:'relative',zIndex:1}}>
-          <div style={{display:'inline-flex',alignItems:'center',background:'#ffffff',borderRadius:8,padding:'8px 14px',marginBottom:8}}>
-            <span style={{fontSize:15,fontWeight:800,color:aqbNavy,letterSpacing:'0.02em',fontFamily:'IBM Plex Mono, monospace'}}>aqb</span>
-            <span style={{fontSize:10,fontWeight:600,color:aqbOrange,marginLeft:4,letterSpacing:'0.04em'}}>SOLUTIONS</span>
+          <div style={{position:'relative',zIndex:1}}>
+            <img src="/assets/logo2.webp" alt="AQB Solutions" style={{height:44,objectFit:'contain',display:'block'}}/>
           </div>
-        </div>
         <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',position:'relative',zIndex:1}}>
           <div style={{display:'inline-flex',alignItems:'center',gap:8,marginBottom:20}}>
             <div style={{width:36,height:36,borderRadius:9,background:aqbOrange,display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -526,9 +523,9 @@ function LoginPage({ onLogin, dark }) {
             <span style={{fontSize:13,fontWeight:600,color:'rgba(255,255,255,0.6)',letterSpacing:'0.04em',textTransform:'uppercase'}}>EncoderMatch</span>
           </div>
           <h1 style={{margin:'0 0 16px',fontSize:34,fontWeight:700,color:'#ffffff',letterSpacing:'-0.03em',lineHeight:1.2}}>AI-powered encoder<br/>cross-reference</h1>
-          <p style={{margin:'0 0 40px',fontSize:14.5,color:'rgba(255,255,255,0.55)',lineHeight:1.65,maxWidth:320}}>Find compatible replacement encoders from 254,000+ variants across Kübler, EPC, and Sick catalogues — ranked by field-by-field compatibility score.</p>
+          <p style={{margin:'0 0 40px',fontSize:14.5,color:'rgba(255,255,255,0.55)',lineHeight:1.65,maxWidth:320}}>Find compatible replacement encoders from 270,000+ variants across Kübler, EPC, Sick, and Posital catalogues — ranked by field-by-field compatibility score.</p>
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {[{icon:'⚡',text:'Results in 2–5 seconds'},{icon:'🎯',text:'T2/T3 tiered scoring — physical + secondary specs'},{icon:'🔒',text:'Licence-controlled database access per user'}].map(f=>(
+            {[{icon:'⚡',text:'Typically 2–5 seconds per search'},{icon:'🎯',text:'Two-tier scoring — physical fit weighted 70%, secondary specs 30%'},{icon:'🔒',text:'Role-based access — each user sees only their licensed catalogue'}].map(f=>(
               <div key={f.text} style={{display:'flex',alignItems:'center',gap:10}}>
                 <div style={{width:28,height:28,borderRadius:7,flexShrink:0,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13}}>{f.icon}</div>
                 <span style={{fontSize:13,color:'rgba(255,255,255,0.65)'}}>{f.text}</span>
@@ -601,7 +598,14 @@ function AIExplanationTab({ result, source, dark, blocks, status, setBlocks, set
       });
       if(!resp.ok) throw new Error(`API ${resp.status}`);
       const data=await resp.json();
-      setBlocks(Array.isArray(data.blocks)?data.blocks:[]);
+      const raw=Array.isArray(data.blocks)?data.blocks:[];
+      const ORDER={overview:-1,issue:0,warning:1,good:2,info:3,summary:99};
+      const sorted=raw.slice().sort((a,b)=>{
+        const aKey=a.field==='overview'?'overview':a.field==='summary'?'summary':a.level;
+        const bKey=b.field==='overview'?'overview':b.field==='summary'?'summary':b.level;
+        return (ORDER[aKey]??3)-(ORDER[bKey]??3);
+      });
+      setBlocks(sorted);
       setStatus('done');
     } catch(e) {
       setBlocks([{level:'warning',field:'overview',text:'Could not load AI analysis. Please retry.'}]);
@@ -1005,16 +1009,25 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
       {/* Number of results — adjustable for admin, read-only for enduser */}
       {(isAdmin||isEndUser)&&<div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Results to show</label>
-        <div style={{display:'flex',alignItems:'center',border:`1px solid ${border}`,borderRadius:6,overflow:'hidden',background:inputBg,opacity:isEndUser?0.6:1}}>
-          <button onClick={()=>!isEndUser&&setTopN(n=>Math.max(1,n-1))} style={{width:34,height:34,background:'transparent',border:'none',cursor:isEndUser?'not-allowed':'pointer',fontSize:18,color:textSec,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,lineHeight:1}}
-            onMouseEnter={e=>{if(!isEndUser)e.currentTarget.style.background=dark?'#1e293b':'#f1f5f9'}}
-            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>−</button>
-          <span style={{flex:1,textAlign:'center',fontSize:13,fontWeight:700,color:textPri,fontVariantNumeric:'tabular-nums'}}>{topN}</span>
-          <button onClick={()=>!isEndUser&&setTopN(n=>Math.min(50,n+1))} style={{width:34,height:34,background:'transparent',border:'none',cursor:isEndUser?'not-allowed':'pointer',fontSize:18,color:textSec,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,lineHeight:1}}
-            onMouseEnter={e=>{if(!isEndUser)e.currentTarget.style.background=dark?'#1e293b':'#f1f5f9'}}
-            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>+</button>
+        <div style={{display:'flex',alignItems:'center',gap:8,opacity:isEndUser?0.6:1}}>
+          <input type="range" min={1} max={50} step={1} value={topN} disabled={isEndUser}
+            onChange={e=>setTopN(+e.target.value)}
+            style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,
+              background:dark?'#334155':'#e2e8f0',outline:'none',
+              cursor:isEndUser?'not-allowed':'pointer',accentColor:'#1a3570'}}/>
+          <input type="number" min={1} max={50} value={topN} disabled={isEndUser}
+            onChange={e=>{const n=parseInt(e.target.value,10);if(!isNaN(n))setTopN(Math.min(50,Math.max(1,n)));}}
+            onBlur={e=>{const n=parseInt(e.target.value,10);setTopN(Math.min(50,Math.max(1,isNaN(n)?1:n)));}}
+            style={{width:46,padding:'4px 6px',background:inputBg,border:`1px solid ${border}`,
+              borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',
+              fontSize:13,fontWeight:700,textAlign:'center',outline:'none',
+              cursor:isEndUser?'not-allowed':'text'}}/>
         </div>
-        {isEndUser&&<div style={{fontSize:10.5,color:textSec,marginTop:4}}>Restricted to {END_USER_MAX_RESULTS} results for your account</div>}
+        <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
+          <span style={{fontSize:10,color:textSec}}>1</span>
+          <span style={{fontSize:10,color:textSec}}>50</span>
+        </div>
+        {isEndUser&&<div style={{fontSize:10.5,color:textSec,marginTop:2}}>Restricted to {END_USER_MAX_RESULTS} results for your account</div>}
       </div>}
 
 
@@ -1084,7 +1097,7 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw,
           })
         });
         const data=await resp.json();
-        if (resp.status===403) {
+        if (resp.status===403||resp.status===429) {
           // Search limit reached — update user state and show locked
           if(setUser) setUser(u=>({...u,searches_used:u?.searches_limit||100}));
           setSearchState('idle');
@@ -1224,12 +1237,13 @@ function HistoryPage({ user, onRerun, dark, authToken }) {
 }
 
 // ── Admin ───────────────────────────────────────────────────────────────────
-function UserTable({ users, dark, authToken, onRefresh }) {
+function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
   const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
   const [hov,setHov]=React.useState(null);
   const [deleting,setDeleting]=React.useState(null);
-  const handleDelete=async(userId)=>{
+  const handleDelete=async(userId,e)=>{
+    e.stopPropagation();
     if(!window.confirm(`Delete user ${userId}? This cannot be undone.`)) return;
     setDeleting(userId);
     try {
@@ -1252,7 +1266,8 @@ function UserTable({ users, dark, authToken, onRefresh }) {
         const pct=u.used/u.limit, barColor=pct>=1?'#dc2626':pct>=0.8?'#d97706':'#1855d4';
         return (
           <div key={u.id} onMouseEnter={()=>setHov(u.id)} onMouseLeave={()=>setHov(null)}
-            style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px 90px 70px 44px',padding:'12px 20px',alignItems:'center',borderBottom:i<users.length-1?`1px solid ${border}`:'none',background:hov===u.id?(dark?'#1e293b':'#f8fafc'):'transparent',transition:'background 0.12s'}}>
+            onClick={()=>onSelectUser&&onSelectUser(u)}
+            style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px 90px 70px 44px',padding:'12px 20px',alignItems:'center',borderBottom:i<users.length-1?`1px solid ${border}`:'none',background:hov===u.id?(dark?'#1e293b':'#f8fafc'):'transparent',transition:'background 0.12s',cursor:'pointer'}}>
             <div style={{display:'flex',alignItems:'center',gap:9}}>
               <div style={{width:28,height:28,borderRadius:'50%',flexShrink:0,background:dark?'#1e293b':'#f1f5f9',border:`1px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:dark?'#94a3b8':'#64748b'}}>
                 {u.name.split(' ').map(p=>p[0]).join('')}
@@ -1279,7 +1294,7 @@ function UserTable({ users, dark, authToken, onRefresh }) {
               {u.dir==='bidirectional'?'⇄ Bidirectional':'→ Source only'}
             </span>
             {statusBadge(u.status)}
-            <button onClick={()=>handleDelete(u.id)} disabled={deleting===u.id}
+            <button onClick={(e)=>handleDelete(u.id,e)} disabled={deleting===u.id}
               style={{background:'transparent',border:'none',cursor:'pointer',color:dark?'#475569':'#94a3b8',padding:4,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
               onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
               onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
@@ -1290,6 +1305,251 @@ function UserTable({ users, dark, authToken, onRefresh }) {
         );
       })}
     </div>
+  );
+}
+
+function UserDetailPanel({ user, dark, authToken, onClose }) {
+  const [tab,setTab]=React.useState('activity');
+  const [history,setHistory]=React.useState([]);
+  const [errors,setErrors]=React.useState([]);
+  const [loadingH,setLoadingH]=React.useState(false);
+  const [loadingE,setLoadingE]=React.useState(false);
+
+  const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
+  const bg=dark?'#0a0f1a':'#f4f6fa';
+  const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
+
+  // Close on Escape key
+  React.useEffect(()=>{
+    const h=(e)=>{ if(e.key==='Escape') onClose(); };
+    window.addEventListener('keydown',h);
+    return ()=>window.removeEventListener('keydown',h);
+  },[onClose]);
+
+  // Fetch history when panel opens or tab switches to activity
+  React.useEffect(()=>{
+    if(tab!=='activity'||!user||!authToken) return;
+    setLoadingH(true);
+    fetch(`/api/admin/users/${encodeURIComponent(user.email)}/history?limit=50`,
+      {headers:{'Authorization':`Bearer ${authToken}`}})
+      .then(r=>r.json()).then(d=>setHistory(d.history||[])).catch(()=>setHistory([]))
+      .finally(()=>setLoadingH(false));
+  },[tab,user,authToken]);
+
+  // Fetch errors when tab switches to errors
+  React.useEffect(()=>{
+    if(tab!=='errors'||!user||!authToken) return;
+    setLoadingE(true);
+    fetch(`/api/admin/users/${encodeURIComponent(user.email)}/errors?limit=50`,
+      {headers:{'Authorization':`Bearer ${authToken}`}})
+      .then(r=>r.json()).then(d=>setErrors(d.errors||[])).catch(()=>setErrors([]))
+      .finally(()=>setLoadingE(false));
+  },[tab,user,authToken]);
+
+  if(!user) return null;
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  const fmtTime=(iso)=>{
+    if(!iso||iso==='—') return '—';
+    try{
+      const d=new Date(iso);
+      return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+
+        ' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    }catch(_){return iso;}
+  };
+  const fmtDuration=(mins)=>{
+    if(!mins||mins===0) return '0 min';
+    if(mins<60) return `${mins} min`;
+    const h=Math.floor(mins/60), m=mins%60;
+    return m>0?`${h}h ${m}m`:`${h}h`;
+  };
+  const statusColor={active:{bg:dark?'#14532d':'#dcfce7',text:dark?'#4ade80':'#15803d'},
+    locked:{bg:dark?'#450a0a':'#fee2e2',text:dark?'#f87171':'#b91c1c'},
+    invited:{bg:dark?'#1e3a5f':'#dbeafe',text:dark?'#60a5fa':'#1e40af'}};
+  const sc=statusColor[user.status]||statusColor.active;
+
+  const tabStyle=(id)=>({padding:'7px 14px',borderRadius:6,cursor:'pointer',
+    fontFamily:'IBM Plex Sans, sans-serif',fontSize:12.5,fontWeight:600,border:'none',
+    background:tab===id?(dark?'#1e293b':'#ffffff'):'transparent',
+    color:tab===id?textPri:textMut,
+    boxShadow:tab===id?(dark?'none':'0 1px 3px rgba(0,0,0,0.08)'):'none'});
+
+  const statCard=(label,value,sub)=>(
+    <div style={{flex:1,background:cardBg,border:`1px solid ${border}`,borderRadius:8,padding:'12px 14px',minWidth:0}}>
+      <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:textMut,marginBottom:5}}>{label}</div>
+      <div style={{fontSize:18,fontWeight:700,color:textPri,letterSpacing:'-0.01em',marginBottom:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:textSec}}>{sub}</div>}
+    </div>
+  );
+
+  // ── tabs ──────────────────────────────────────────────────────────────────
+  const ActivityTab=()=>{
+    if(loadingH) return <div style={{textAlign:'center',padding:'40px 0',color:textMut,fontSize:13}}>Loading history…</div>;
+    if(!history.length) return <div style={{textAlign:'center',padding:'40px 0',color:textMut,fontSize:13}}>No searches recorded yet.</div>;
+    return(
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+          <thead>
+            <tr style={{background:dark?'#0f172a':'#f8fafc'}}>
+              {['Time','Source Part','Flow','Top Match','Results','Score','Elapsed'].map(h=>(
+                <th key={h} style={{padding:'8px 12px',textAlign:'left',fontSize:10.5,fontWeight:700,
+                  textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,
+                  borderBottom:`1px solid ${border}`,whiteSpace:'nowrap'}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((r,i)=>{
+              const ts=fmtTime(r.timestamp);
+              const flow=`${r.source_mfr||'?'} -> ${(r.target_mfrs||[]).join(', ')||'?'}`;
+              const score=r.top_score?`${Math.round(parseFloat(r.top_score)*100)}%`:'—';
+              const elapsed=r.elapsed_s?`${parseFloat(r.elapsed_s).toFixed(1)}s`:'—';
+              return(
+                <tr key={i} style={{borderBottom:`1px solid ${border}`,background:i%2===0?'transparent':(dark?'#0f172a08':'#f8fafc50')}}>
+                  <td style={{padding:'9px 12px',color:textSec,whiteSpace:'nowrap'}}>{ts}</td>
+                  <td style={{padding:'9px 12px',fontFamily:'IBM Plex Mono, monospace',color:textPri,fontSize:11.5}}>{r.src_part||'—'}</td>
+                  <td style={{padding:'9px 12px',color:textSec,whiteSpace:'nowrap'}}>{flow}</td>
+                  <td style={{padding:'9px 12px',fontFamily:'IBM Plex Mono, monospace',color:dark?'#60a5fa':'#1855d4',fontSize:11.5}}>{r.top_match||'—'}</td>
+                  <td style={{padding:'9px 12px',color:textPri,textAlign:'center'}}>{r.result_count??'—'}</td>
+                  <td style={{padding:'9px 12px',fontWeight:600,color:parseFloat(r.top_score)>=0.85?(dark?'#4ade80':'#15803d'):parseFloat(r.top_score)>=0.6?(dark?'#fbbf24':'#d97706'):(dark?'#f87171':'#b91c1c')}}>{score}</td>
+                  <td style={{padding:'9px 12px',color:textSec}}>{elapsed}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const AccountTab=()=>(
+    <div style={{display:'flex',flexDirection:'column',gap:16,padding:'4px 0'}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        {[['Role',user.role||'—'],['Client',user.client||'—'],
+          ['Status',user.status||'—'],['Direction',user.dir||'—'],
+          ['Daily Limit',`${user.limit} searches/day`],['Created',fmtTime(user.created_at)],
+          ['Last Login',fmtTime(user.last_login)],['Last Search',user.last||'—']
+        ].map(([k,v])=>(
+          <div key={k} style={{background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:6,padding:'10px 12px'}}>
+            <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,marginBottom:4}}>{k}</div>
+            <div style={{fontSize:13,fontWeight:500,color:textPri}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:6,padding:'10px 12px'}}>
+        <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,marginBottom:8}}>Allowed Sources</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {(user.sources||[]).map(s=><span key={s} style={{fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:4,background:dark?'#1e3a5f':'#dbeafe',color:dark?'#60a5fa':'#1e40af',textTransform:'capitalize'}}>{s}</span>)}
+        </div>
+      </div>
+      <div style={{background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:6,padding:'10px 12px'}}>
+        <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,marginBottom:8}}>Target Databases</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {(user.dbs||[]).map(d=><span key={d} style={{fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:4,background:dark?'#14532d':'#dcfce7',color:dark?'#4ade80':'#15803d',textTransform:'capitalize'}}>{d}</span>)}
+        </div>
+      </div>
+    </div>
+  );
+
+  const ErrorsTab=()=>{
+    if(loadingE) return <div style={{textAlign:'center',padding:'40px 0',color:textMut,fontSize:13}}>Loading errors…</div>;
+    if(!errors.length) return <div style={{textAlign:'center',padding:'40px 0',color:dark?'#4ade80':'#15803d',fontSize:13}}>No errors recorded. All good.</div>;
+    return(
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+          <thead>
+            <tr style={{background:dark?'#0f172a':'#f8fafc'}}>
+              {['Time','Endpoint','Status','Error'].map(h=>(
+                <th key={h} style={{padding:'8px 12px',textAlign:'left',fontSize:10.5,fontWeight:700,
+                  textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,
+                  borderBottom:`1px solid ${border}`}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {errors.map((e,i)=>(
+              <tr key={i} style={{borderBottom:`1px solid ${border}`}}>
+                <td style={{padding:'9px 12px',color:textSec,whiteSpace:'nowrap'}}>{fmtTime(e.timestamp)}</td>
+                <td style={{padding:'9px 12px',fontFamily:'IBM Plex Mono, monospace',fontSize:11.5,color:textPri}}>{e.endpoint||'—'}</td>
+                <td style={{padding:'9px 12px'}}>
+                  <span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:4,
+                    background:parseInt(e.status_code)>=500?(dark?'#450a0a':'#fee2e2'):(dark?'#431407':'#ffedd5'),
+                    color:parseInt(e.status_code)>=500?(dark?'#f87171':'#b91c1c'):(dark?'#fb923c':'#c2410c')}}>
+                    {e.status_code}
+                  </span>
+                </td>
+                <td style={{padding:'9px 12px',color:textSec,maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={e.error_msg}>{e.error_msg||'—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  return(
+    <>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',zIndex:200,backdropFilter:'blur(2px)'}}/>
+      {/* Panel */}
+      <div style={{position:'fixed',top:0,right:0,bottom:0,width:640,zIndex:201,
+        background:bg,borderLeft:`1px solid ${border}`,
+        display:'flex',flexDirection:'column',
+        boxShadow:'-8px 0 40px rgba(0,0,0,0.2)',overflow:'hidden'}}>
+
+        {/* Header */}
+        <div style={{padding:'18px 22px 14px',borderBottom:`1px solid ${border}`,background:cardBg,flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
+            <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+              <div style={{width:40,height:40,borderRadius:'50%',flexShrink:0,
+                background:'linear-gradient(135deg,#1855d4,#3b82f6)',
+                display:'flex',alignItems:'center',justifyContent:'center',
+                fontSize:14,fontWeight:700,color:'white',letterSpacing:'0.05em'}}>
+                {(user.name||'?').split(' ').map(p=>p[0]).join('').toUpperCase().slice(0,2)}
+              </div>
+              <div style={{minWidth:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  <span style={{fontSize:15,fontWeight:700,color:textPri}}>{user.name}</span>
+                  <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:4,background:sc.bg,color:sc.text,textTransform:'capitalize'}}>{user.status}</span>
+                  <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:4,background:dark?'#1e3a5f':'#dbeafe',color:dark?'#60a5fa':'#1e40af',textTransform:'capitalize'}}>{user.client||'—'}</span>
+                </div>
+                <div style={{fontSize:12,color:textSec,marginTop:2}}>{user.email}</div>
+              </div>
+            </div>
+            <button onClick={onClose} style={{flexShrink:0,background:'none',border:'none',cursor:'pointer',color:textMut,padding:4,display:'flex',borderRadius:4}}
+              onMouseEnter={e=>e.currentTarget.style.color=textPri} onMouseLeave={e=>e.currentTarget.style.color=textMut}>
+              <svg width={16} height={16} viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+            </button>
+          </div>
+
+          {/* Stats strip */}
+          <div style={{display:'flex',gap:8,marginTop:14}}>
+            {statCard('Searches today',`${user.used} / ${user.limit}`,`${Math.max(0,user.limit-user.used)} remaining`)}
+            {statCard('Last search',user.last&&user.last!=='—'?user.last:'Never','Date')}
+            {statCard('Last login',user.last_login?fmtTime(user.last_login):'—','Session')}
+            {statCard('Time in app',fmtDuration(user.total_time_spent_minutes||0),'While tab active')}
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div style={{padding:'12px 22px 0',borderBottom:`1px solid ${border}`,background:cardBg,flexShrink:0}}>
+          <div style={{display:'flex',gap:2,background:dark?'#0f172a':'#f1f5f9',padding:3,borderRadius:7,width:'fit-content',border:`1px solid ${border}`}}>
+            <button style={tabStyle('activity')} onClick={()=>setTab('activity')}>Activity</button>
+            <button style={tabStyle('account')} onClick={()=>setTab('account')}>Account</button>
+            <button style={tabStyle('errors')} onClick={()=>setTab('errors')}>
+              Errors{errors.length>0&&<span style={{marginLeft:5,fontSize:10,fontWeight:700,padding:'1px 5px',borderRadius:10,background:'#dc2626',color:'white'}}>{errors.length}</span>}
+            </button>
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div style={{flex:1,overflowY:'auto',padding:'16px 22px'}}>
+          {tab==='activity'&&<ActivityTab/>}
+          {tab==='account'&&<AccountTab/>}
+          {tab==='errors'&&<ErrorsTab/>}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1394,8 +1654,17 @@ function AddUserModal({ onClose, dark, authToken, onCreated }) {
           <div>
             <label style={lStyle}>Daily search limit</label>
             <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <input type="range" min={1} max={100} step={1} value={form.limit} onChange={e=>setForm(f=>({...f,limit:+e.target.value}))} style={{flex:1,WebkitAppearance:'none',appearance:'none',height:4,borderRadius:2,background:'#334155',outline:'none',cursor:'pointer',accentColor:'#1855d4'}}/>
-              <span style={{fontSize:13,fontWeight:700,color:textPri,width:36,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{form.limit}</span>
+              <input type="range" min={0} max={50} step={1} value={form.limit}
+                onChange={e=>setForm(f=>({...f,limit:+e.target.value}))}
+                style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,background:'#334155',outline:'none',cursor:'pointer',accentColor:'#1855d4'}}/>
+              <input type="number" min={0} max={50} value={form.limit}
+                onChange={e=>{const n=parseInt(e.target.value,10);if(!isNaN(n))setForm(f=>({...f,limit:Math.min(50,Math.max(0,n))}));}}
+                onBlur={e=>{const n=parseInt(e.target.value,10);setForm(f=>({...f,limit:Math.min(50,Math.max(0,isNaN(n)?0:n))}));}}
+                style={{width:52,padding:'5px 6px',background:inputBg,border:`1px solid ${border}`,borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:700,textAlign:'center',outline:'none'}}/>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
+              <span style={{fontSize:10,color:dark?'#475569':'#94a3b8'}}>0 (locked)</span>
+              <span style={{fontSize:10,color:dark?'#475569':'#94a3b8'}}>50</span>
             </div>
           </div>
         </div>
@@ -1426,6 +1695,7 @@ function AdminPage({ dark, authToken }) {
   const [tab,setTab]=React.useState('users');
   const [showModal,setShowModal]=React.useState(false);
   const [users,setUsers]=React.useState([]);
+  const [selectedUser,setSelectedUser]=React.useState(null);
   const bg=dark?'#0a0f1a':'#f4f6fa', cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b';
   const fetchUsers=React.useCallback(async()=>{
@@ -1440,6 +1710,8 @@ function AdminPage({ dark, authToken }) {
         sources:(u.allowed_sources||[]), dbs:(u.allowed_targets||[]),
         client:u.client||'', dir:u.direction||'source_only',
         status:u.status||'active', last:u.last_search_date||'—',
+        last_login:u.last_login||'', created_at:u.created_at||'',
+        total_time_spent_minutes:u.total_time_spent_minutes||0,
       }));
       setUsers(mapped);
     } catch(_){}
@@ -1451,7 +1723,7 @@ function AdminPage({ dark, authToken }) {
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
-            <span style={{fontFamily:'IBM Plex Mono, monospace',fontSize:13,fontWeight:700,color:'#1a3570',letterSpacing:'0.02em'}}>aqb</span>
+            <span style={{fontFamily:'IBM Plex Mono, monospace',fontSize:13,fontWeight:700,color:dark?'#60a5fa':'#1a3570',letterSpacing:'0.02em'}}>aqb</span>
             <span style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#475569':'#94a3b8'}}>Admin Console</span>
           </div>
           <h2 style={{margin:0,fontSize:18,fontWeight:700,color:textPri,letterSpacing:'-0.02em'}}>Client Management</h2>
@@ -1466,9 +1738,10 @@ function AdminPage({ dark, authToken }) {
         <button style={tabStyle('users')} onClick={()=>setTab('users')}>User Management</button>
         <button style={tabStyle('analytics')} onClick={()=>setTab('analytics')}>Usage Analytics</button>
       </div>
-      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers}/>}
+      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={setSelectedUser}/>}
       {tab==='analytics'&&<AnalyticsTab dark={dark}/>}
       {showModal&&<AddUserModal onClose={()=>setShowModal(false)} dark={dark} authToken={authToken} onCreated={fetchUsers}/>}
+      {selectedUser&&<UserDetailPanel user={selectedUser} dark={dark} authToken={authToken} onClose={()=>setSelectedUser(null)}/>}
     </div>
   );
 }
@@ -1562,6 +1835,7 @@ function WeightsPage({ dark, t2Raw, t3Raw, setT2Raw, setT3Raw }) {
   const bg=dark?'#0a0f1a':'#f4f6fa', cardBg=dark?'#111827':'#ffffff';
   const border=dark?'#1e293b':'#e2e8f0', textPri=dark?'#f1f5f9':'#111827';
   const textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
+  const inputBg=dark?'#0f172a':'#f8fafc';
 
   const T2_PARAMS = [
     {field:'cpr_values',         label:'PPR Coverage',      weight:'0.30'},
@@ -1584,24 +1858,33 @@ function WeightsPage({ dark, t2Raw, t3Raw, setT2Raw, setT3Raw }) {
   const SliderRow=({field,label,defaultWeight,raw,setRaw})=>{
     const val=raw[field]??5;
     const pct=((val/Object.values(raw).reduce((s,v)=>s+v,0))*100).toFixed(1);
+    const tickId=`ticks-${field}`;
     return (
-      <div style={{marginBottom:14}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+      <div style={{marginBottom:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
           <span style={{fontSize:12.5,color:textPri,fontWeight:500}}>{label}</span>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <span style={{fontSize:11,color:textMut,fontVariantNumeric:'tabular-nums'}}>({pct}%)</span>
-            <span style={{fontSize:13,fontWeight:700,color:dark?'#60a5fa':'#1a3570',
-              minWidth:18,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{val}</span>
+            <input type="number" min={1} max={10} value={val}
+              onChange={e=>setRaw(r=>({...r,[field]:Math.min(10,Math.max(1,+e.target.value||1))}))}
+              onBlur={e=>setRaw(r=>({...r,[field]:Math.min(10,Math.max(1,+e.target.value||1))}))}
+              style={{width:42,padding:'3px 5px',background:inputBg,border:`1px solid ${border}`,
+                borderRadius:5,color:dark?'#60a5fa':'#1a3570',fontFamily:'IBM Plex Sans, sans-serif',
+                fontSize:13,fontWeight:700,textAlign:'center',outline:'none'}}/>
           </div>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <span style={{fontSize:10,color:textMut,minWidth:8}}>1</span>
-          <input type="range" min={1} max={10} step={1} value={val}
-            onChange={e=>setRaw(r=>({...r,[field]:parseInt(e.target.value)}))}
-            style={{flex:1,WebkitAppearance:'none',appearance:'none',height:4,
-              borderRadius:2,background:dark?'#334155':'#e2e8f0',
-              outline:'none',cursor:'pointer',accentColor:'#1a3570'}}/>
-          <span style={{fontSize:10,color:textMut,minWidth:16}}>10</span>
+        <input type="range" min={1} max={10} step={1} value={val} list={tickId}
+          onChange={e=>setRaw(r=>({...r,[field]:parseInt(e.target.value)}))}
+          style={{width:'100%',WebkitAppearance:'none',appearance:'none',height:5,
+            borderRadius:3,background:dark?'#334155':'#e2e8f0',
+            outline:'none',cursor:'pointer',accentColor:'#1a3570'}}/>
+        <datalist id={tickId}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n=><option key={n} value={n}/>)}
+        </datalist>
+        <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n=>(
+            <span key={n} style={{fontSize:9,color:textMut,width:10,textAlign:'center'}}>{n}</span>
+          ))}
         </div>
       </div>
     );
@@ -1775,6 +2058,19 @@ function App() {
       setTweak('userRole',role);
     }
   };
+
+  // Heartbeat — sends a ping every 5 min while the tab is visible
+  // Backend increments total_time_spent_minutes atomically
+  React.useEffect(()=>{
+    if(!authToken || API_MODE!=='live') return;
+    const ping=async()=>{
+      if(document.visibilityState!=='visible') return;
+      try{ await fetch('/api/auth/heartbeat',{method:'POST',headers:{'Authorization':`Bearer ${authToken}`}}); }
+      catch(_){}
+    };
+    const id=setInterval(ping, 5*60*1000);
+    return ()=>clearInterval(id);
+  },[authToken]);
   const appBg=dark?'#0a0f1a':'#f4f6fa';
 
   if (page==='login') return (
@@ -1814,10 +2110,7 @@ function App() {
                 style={{width:36,height:36,borderRadius:7,background:'transparent',border:`1px solid ${dark?'#334155':'#e2e8f0'}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:dark?'#94a3b8':'#64748b',flexShrink:0}}
                 onMouseEnter={e=>{e.currentTarget.style.background=dark?'#1e293b':'#f1f5f9';}}
                 onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}>
-                {dark
-                  ? <svg width={17} height={17} viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.3"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                  : <svg width={17} height={17} viewBox="0 0 14 14" fill="none"><path d="M11.5 9A5 5 0 015 2.5h-.5a5 5 0 100 9H5a5.02 5.02 0 006.5-2.5z" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                }
+                <svg width={17} height={17} viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.3"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
               </button>
               <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',padding:'2px 7px',borderRadius:4,background:dark?'#1e3a5f':'#eff6ff',color:dark?'#60a5fa':'#1a3570'}}>
                 {(baseUser.role==='superadmin'||baseUser.role==='clientadmin')?'ADMIN':'END USER'}
