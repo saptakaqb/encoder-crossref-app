@@ -604,10 +604,10 @@ ADDITIONAL SPECIFICATIONS (unscored — for completeness):
 {chr(10).join(extra_lines)}
 
 Return ONLY a valid JSON array (no markdown fences). Each element:
-{"level":"good"|"warning"|"issue"|"info", "field":"field name or overview", "text":"MAX 1 sentence. No preamble, no repetition."}
+{{"level":"good"|"warning"|"issue"|"info", "field":"field name or overview", "text":"MAX 1 sentence. No preamble, no repetition."}}
 
 Structure your response:
-1. First entry: level "info", field "overview" — 2-3 sentences: overall suitability and key headline differences
+1. First entry: level "info", field "overview" — 1-2 sentences: overall suitability and key headline differences
 2. Then one entry per SCORED field (T2 first, T3 second) in the order listed above, covering EVERY scored field:
    - "good" (85-100%): briefly confirm compatibility, note if any practical consideration
    - "warning" (60-84%): explain the difference and what the engineer must check

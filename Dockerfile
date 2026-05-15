@@ -28,6 +28,7 @@ COPY posital_urls.csv ./
 RUN mkdir -p static
 COPY index.html static/index.html
 COPY EncoderMatch.jsx static/EncoderMatch.jsx
+COPY static/logo2.webp static/logo2.webp
 
 # ── Environment defaults (override at runtime) ─────────────────────────────
 ENV AWS_REGION=ap-south-1
