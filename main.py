@@ -604,7 +604,7 @@ ADDITIONAL SPECIFICATIONS (unscored — for completeness):
 {chr(10).join(extra_lines)}
 
 Return ONLY a valid JSON array (no markdown fences). Each element:
-{{"level":"good"|"warning"|"issue"|"info", "field":"field name or overview", "text":"1-3 plain-English sentences"}}
+{"level":"good"|"warning"|"issue"|"info", "field":"field name or overview", "text":"MAX 1 sentence. No preamble, no repetition."}
 
 Structure your response:
 1. First entry: level "info", field "overview" — 2-3 sentences: overall suitability and key headline differences
