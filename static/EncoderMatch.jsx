@@ -1159,8 +1159,12 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
   const isAdmin=user.role==='superadmin';
   const [partNum,setPartNum]=React.useState('');
   const [source,setSource]=React.useState(()=>isAdmin?'kubler':(user.allowed_sources||['kubler'])[0]||'kubler');
-  const [targets,setTargets]=React.useState({epc:true,sick:false,posital:false,kubler:false});
+  const [targets,setTargets]=React.useState(()=>{
+    const ids=isAdmin?mfrIds:(user.allowed_targets||[]);
+    return Object.fromEntries(ids.map((m,i)=>[m,i===0]));
+  });
   const isEndUser=user.role==='enduser';
+  const isMultiTarget=isAdmin||(user.allowed_targets||[]).length>0;
   const END_USER_MAX_RESULTS=3;
   const [topN,setTopN]=React.useState(isAdmin?10:isEndUser?END_USER_MAX_RESULTS:5);
   const [detectedMfr,setDetectedMfr]=React.useState(null);
@@ -1182,7 +1186,7 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
       });
       if(resp.ok){
         const data=await resp.json();
-        const availSrc=isAdmin?mfrIds:(user.allowed_sources||[]);
+        const availSrc=isAdmin?mfrIds:[...(user.allowed_sources||[]),...(user.allowed_targets||[])].filter((v,i,a)=>a.indexOf(v)===i);
         if(data.manufacturer){
           setDetectedMfr(data.manufacturer);  // always mark as recognized if API identifies a manufacturer
           // Only update the source dropdown if the detected mfr differs from current selection
@@ -1229,16 +1233,16 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
   // Using the targets state for non-admin causes a bug: when EPC is detected
   // as source, targets.epc flips to false (the only initially-true value),
   // making anyTarget=false and permanently greying the button.
-  const anyTarget = isAdmin
-    ? Object.values(targets).some(Boolean)
-    : (user.allowed_targets||[]).length > 0;
+  const anyTarget=Object.values(targets).some(Boolean);
   const toggleTarget=(key)=>!locked&&setTargets(t=>({...t,[key]:!t[key]}));
-  const swapSourceTarget=()=>{const ft=Object.entries(targets).find(([,v])=>v)?.[0];if(!ft)return;setSource(ft);setTargets({...Object.fromEntries(mfrIds.map(m=>[m,false])),[source]:true});};
-  const availableSources=isAdmin?mfrIds:user.allowed_sources;
-  const availableTargets=isAdmin?mfrIds.filter(m=>m!==source):user.allowed_targets;
+  // For bidirectional endusers, any manufacturer in either pool can be source
+  const endUserSrcPool=[...(user.allowed_sources||[]),...(user.allowed_targets||[])].filter((v,i,a)=>a.indexOf(v)===i);
+  const availableSources=isAdmin?mfrIds:endUserSrcPool;
+  const swapSourceTarget=()=>{const ft=Object.entries(targets).find(([,v])=>v)?.[0];if(!ft)return;setSource(ft);setTargets({...Object.fromEntries(availableSources.map(m=>[m,false])),[source]:true});};
+  const availableTargets=(isAdmin?mfrIds:(user.allowed_targets||[])).filter(m=>m!==source);
   return (
     <div style={{width:268,flexShrink:0,background:bg,borderRight:`1px solid ${border}`,display:'flex',flexDirection:'column',padding:'20px 16px',gap:16,overflowY:'auto'}}>
-      <div style={{fontSize:13,fontWeight:700,color:dark?'#94a3b8':'#374151',letterSpacing:'-0.01em'}}>{isAdmin?'Bidirectional Search':'Find Replacements'}</div>
+      <div style={{fontSize:13,fontWeight:700,color:dark?'#94a3b8':'#374151',letterSpacing:'-0.01em'}}>{isMultiTarget?'Bidirectional Search':'Find Replacements'}</div>
       <div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Part Number</label>
         <input value={partNum} onChange={e=>handlePartNumChange(e.target.value)}
@@ -1253,16 +1257,11 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
       </div>
       <div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Source Manufacturer</label>
-        {isAdmin
-          ?<select value={source} onChange={e=>{setSource(e.target.value);setTargets(t=>({...t,[e.target.value]:false}));}} style={{width:'100%',padding:'8px 10px',background:inputBg,border:`1px solid ${border}`,borderRadius:6,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,outline:'none',cursor:'pointer'}}>
-              {availableSources.map(m=><option key={m} value={m}>{mfrLabel(m)}</option>)}
-            </select>
-          :<select value={source} onChange={e=>setSource(e.target.value)} style={{width:'100%',padding:'8px 10px',background:inputBg,border:`1px solid ${dark?'#1e3a5f':'#bfdbfe'}`,borderRadius:6,color:dark?'#93c5fd':'#1e40af',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,outline:'none',cursor:'pointer'}}>
-              {availableSources.map(m=><option key={m} value={m}>{mfrLabel(m)}</option>)}
-            </select>
-        }
+        <select value={source} onChange={e=>{setSource(e.target.value);setTargets(t=>({...t,[e.target.value]:false}));}} style={{width:'100%',padding:'8px 10px',background:inputBg,border:`1px solid ${border}`,borderRadius:6,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,outline:'none',cursor:'pointer'}}>
+          {availableSources.map(m=><option key={m} value={m}>{mfrLabel(m)}</option>)}
+        </select>
       </div>
-      {isAdmin&&(
+      {isMultiTarget&&(
         <button onClick={swapSourceTarget} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px',borderRadius:6,cursor:'pointer',width:'100%',background:'transparent',border:`1px dashed ${border}`,color:textSec,fontFamily:'IBM Plex Sans, sans-serif',fontSize:12}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor='#1a3570';e.currentTarget.style.color=dark?'#93c5fd':'#1a3570';}}
           onMouseLeave={e=>{e.currentTarget.style.borderColor=border;e.currentTarget.style.color=textSec;}}>
@@ -1271,8 +1270,8 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
         </button>
       )}
       <div>
-        <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>{isAdmin?'Search Against':'Target (Locked)'}</label>
-        {isAdmin
+        <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>{isMultiTarget?'Search Against':'Target (Locked)'}</label>
+        {isMultiTarget
           ? availableTargets.map(db=>(
               <label key={db} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 8px',borderRadius:5,marginBottom:3,cursor:locked?'default':'pointer',background:targets[db]?(dark?'#0f1f3d':'#eff6ff'):'transparent',border:`1px solid ${targets[db]?(dark?'#1e40af':'#bfdbfe'):(dark?'#1e293b':'#f1f5f9')}`}}>
                 <div style={{width:15,height:15,borderRadius:3,flexShrink:0,background:targets[db]?'#1a3570':(dark?'#1e293b':'#f8fafc'),border:`1.5px solid ${targets[db]?'#1a3570':(dark?'#334155':'#d1d5db')}`,display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -1315,7 +1314,7 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
 
 
       {/* Search button */}
-      <button onClick={()=>!locked&&anyTarget&&partNum.trim()&&!detecting&&onSearch(partNum,sourceRef.current,isAdmin?targets:{[user.client]:true},isEndUser?END_USER_MAX_RESULTS:topN,{tier2:normalizeWeights(t2Raw),tier3:normalizeWeights(t3Raw)},detectedMfr)} disabled={locked||!anyTarget||!partNum.trim()||detecting}
+      <button onClick={()=>!locked&&anyTarget&&partNum.trim()&&!detecting&&onSearch(partNum,sourceRef.current,targets,isEndUser?END_USER_MAX_RESULTS:topN,{tier2:normalizeWeights(t2Raw),tier3:normalizeWeights(t3Raw)},detectedMfr)} disabled={locked||!anyTarget||!partNum.trim()||detecting}
         style={{width:'100%',padding:'10px',background:(locked||!anyTarget||!partNum.trim()||detecting)?(dark?'#1e293b':'#f1f5f9'):'#1a3570',color:(locked||!anyTarget||!partNum.trim()||detecting)?textSec:'white',border:'none',borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13.5,fontWeight:600,cursor:(locked||!anyTarget||!partNum.trim()||detecting)?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
         {searchState==='loading'
           ?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'white',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>Matching…</>
@@ -1325,8 +1324,8 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
         }
       </button>
       <div style={{display:'flex',alignItems:'center',gap:7,fontSize:11.5,color:dark?'#475569':'#94a3b8',padding:'8px 10px',borderRadius:6,background:dark?'#0f172a':'#f8fafc',border:`1px solid ${dark?'#1e293b':'#f1f5f9'}`}}>
-        {isAdmin
-          ?<><svg width={14} height={14} viewBox="0 0 14 14" fill="none"><path d="M2 5h10M9 2l3 3-3 3M12 9H2M5 6l-3 3 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg><span style={{color:dark?'#a78bfa':'#7c3aed',fontWeight:600}}>Bidirectional</span> — AQB access</>
+        {isMultiTarget
+          ?<><svg width={14} height={14} viewBox="0 0 14 14" fill="none"><path d="M2 5h10M9 2l3 3-3 3M12 9H2M5 6l-3 3 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg><span style={{color:dark?'#a78bfa':'#7c3aed',fontWeight:600}}>Bidirectional</span>{isAdmin?' — AQB access':''}</>
           :<><svg width={12} height={12} viewBox="0 0 12 12" fill="none"><path d="M2 6h8M6 3l4 3-4 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>Source-only matching</>
         }
       </div>
@@ -2167,16 +2166,25 @@ function AnalyticsTab({ dark, authToken }) {
 }
 
 function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel }) {
-  // mfrs prop is used directly — no local constant needed
-  const [form,setForm]=React.useState({name:'',email:'',password:'',client:'posital',sources:[],limit:50});
+  // sources and targets are independent multi-select pools — no locked client field
+  const [form,setForm]=React.useState({name:'',email:'',password:'',sources:[],targets:[],limit:50});
   const [saving,setSaving]=React.useState(false);
   const [error,setError]=React.useState('');
   const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', inputBg=dark?'#0f172a':'#f8fafc';
   const iStyle={width:'100%',boxSizing:'border-box',padding:'9px 10px',background:inputBg,border:`1px solid ${border}`,borderRadius:6,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,outline:'none'};
   const lStyle={display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5};
-  const availSrc=(mfrs||[]).map(m=>m.id).filter(m=>m!==form.client);
+  const allMfrIds=(mfrs||[]).map(m=>m.id);
   const toggleSrc=(m)=>setForm(f=>({...f,sources:f.sources.includes(m)?f.sources.filter(x=>x!==m):[...f.sources,m]}));
+  const toggleTgt=(m)=>setForm(f=>({...f,targets:f.targets.includes(m)?f.targets.filter(x=>x!==m):[...f.targets,m]}));
+  const mfrTab=(m, selected, onToggle)=>(
+    <label key={m} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'7px 14px',borderRadius:6,flex:1,justifyContent:'center',
+      background:selected?(dark?'#1e3a5f':'#eff6ff'):(dark?'#0f172a':'#f8fafc'),
+      border:`1px solid ${selected?(dark?'#1e40af':'#bfdbfe'):border}`}}>
+      <input type="checkbox" checked={selected} onChange={()=>onToggle(m)} style={{display:'none'}}/>
+      <span style={{fontSize:13,fontWeight:600,color:selected?(dark?'#60a5fa':'#1855d4'):textSec}}>{mfrLabel(m)}</span>
+    </label>
+  );
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(4px)'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:12,width:480,maxHeight:'85vh',overflow:'auto',boxShadow:'0 24px 60px rgba(0,0,0,0.25)'}}>
@@ -2193,27 +2201,22 @@ function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel }) {
           {error&&<div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'8px 12px',fontSize:12.5,color:'#b91c1c'}}>{error}</div>}
           <div style={{display:'flex',gap:12}}>
             <div style={{flex:1}}><label style={lStyle}>Full name</label><input style={iStyle} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Jane Smith" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
-            <div style={{flex:1}}><label style={lStyle}>Work email</label><input style={iStyle} type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="j.smith@posital.com" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
+            <div style={{flex:1}}><label style={lStyle}>Work email</label><input style={iStyle} type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="j.smith@company.com" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
           </div>
           <div><label style={lStyle}>Password</label><input style={iStyle} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Set a password for this user" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
           <div>
-            <label style={lStyle}>Client — locked target</label>
-            <select value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value,sources:f.sources.filter(m=>m!==e.target.value)}))} style={{...iStyle,cursor:'pointer'}}>
-              {(mfrs||[]).map(m=><option key={m.id} value={m.id}>{m.display}</option>)}
-            </select>
-            <div style={{fontSize:11,color:dark?'#475569':'#94a3b8',marginTop:4}}>This is the locked search target — user can only find {mfrLabel(form.client)} replacements</div>
+            <label style={lStyle}>Allowed Source Manufacturers</label>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              {allMfrIds.map(m=>mfrTab(m, form.sources.includes(m), toggleSrc))}
+            </div>
+            <div style={{fontSize:11,color:dark?'#475569':'#94a3b8',marginTop:4}}>User can search encoders from these manufacturers.</div>
           </div>
           <div>
-            <label style={lStyle}>Allowed source pool</label>
+            <label style={lStyle}>Allowed Target Manufacturers</label>
             <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              {availSrc.map(m=>(
-                <label key={m} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'7px 14px',borderRadius:6,flex:1,justifyContent:'center',background:form.sources.includes(m)?(dark?'#1e3a5f':'#eff6ff'):(dark?'#0f172a':'#f8fafc'),border:`1px solid ${form.sources.includes(m)?(dark?'#1e40af':'#bfdbfe'):border}`}}>
-                  <input type="checkbox" checked={form.sources.includes(m)} onChange={()=>toggleSrc(m)} style={{display:'none'}}/>
-                  <span style={{fontSize:13,fontWeight:600,color:form.sources.includes(m)?(dark?'#60a5fa':'#1855d4'):textSec}}>{mfrLabel(m)}</span>
-                </label>
-              ))}
+              {allMfrIds.map(m=>mfrTab(m, form.targets.includes(m), toggleTgt))}
             </div>
-            <div style={{fontSize:11,color:dark?'#475569':'#94a3b8',marginTop:4}}>User can only query encoders from these manufacturers</div>
+            <div style={{fontSize:11,color:dark?'#475569':'#94a3b8',marginTop:4}}>User can find replacements in these manufacturers.</div>
           </div>
           <div>
             <label style={lStyle}>Daily search limit</label>
@@ -2238,10 +2241,11 @@ function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel }) {
             setError('');
             if(!form.name||!form.email||!form.password){setError('Name, email and password are required.');return;}
             if(form.sources.length===0){setError('Select at least one source manufacturer.');return;}
+            if(form.targets.length===0){setError('Select at least one target manufacturer.');return;}
             setSaving(true);
             try {
               const resp=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`},
-                body:JSON.stringify({name:form.name,email:form.email,password:form.password,client:form.client,searches_limit:form.limit,allowed_sources:form.sources,allowed_targets:[form.client],direction:'source_only'})});
+                body:JSON.stringify({name:form.name,email:form.email,password:form.password,client:'',searches_limit:form.limit,allowed_sources:form.sources,allowed_targets:form.targets,direction:'source_only'})});
               const data=await resp.json();
               if(!resp.ok){setError(data.detail||'Failed to create user.');setSaving(false);return;}
               onCreated&&onCreated(); onClose();

@@ -386,21 +386,23 @@ async def run_match(body: MatchRequest, user: dict = Depends(get_current_user)):
             detail=f"Source manufacturer '{body.source_mfr}' is not in your allowed sources."
         )
 
-    # Enforce target: endusers always search against their own client manufacturer
+    # Enforce target: validate requested targets against user's allowed pool
     if is_admin:
         effective_targets = body.target_mfrs
         if not effective_targets:
             raise HTTPException(status_code=400, detail="At least one target manufacturer required")
-        # Guard: never match source against itself
-        effective_targets = [t for t in effective_targets if t != body.source_mfr]
-        if not effective_targets:
-            raise HTTPException(status_code=400, detail="Target manufacturer cannot be the same as source.")
     else:
-        # Enduser: target is always locked to their client manufacturer
-        client_mfr = user.get("client", "").lower()
-        if not client_mfr:
-            raise HTTPException(status_code=403, detail="User has no client manufacturer configured.")
-        effective_targets = [client_mfr]
+        # Enduser: requested targets must be within their allowed_targets pool
+        if not allowed_targets:
+            raise HTTPException(status_code=403, detail="No target manufacturers configured for this account.")
+        effective_targets = [t for t in body.target_mfrs if t in allowed_targets]
+        if not effective_targets:
+            raise HTTPException(status_code=403, detail="Requested target manufacturer is not in your allowed targets.")
+
+    # Guard: never match source against itself (applies to all roles)
+    effective_targets = [t for t in effective_targets if t != body.source_mfr]
+    if not effective_targets:
+        raise HTTPException(status_code=400, detail="Target manufacturer cannot be the same as source.")
 
     # Cap top_n at 3 for endusers
     effective_top_n = body.top_n if is_admin else min(body.top_n, 3)
@@ -564,8 +566,15 @@ async def detect_part_manufacturer(
     that contains it. Used by the frontend to auto-switch the source dropdown.
     """
     is_admin = user.get("role") in ("superadmin", "clientadmin")
-    allowed  = list(VALID_MANUFACTURERS) if is_admin else (
-                   user.get("allowed_sources", []) or list(VALID_MANUFACTURERS))
+    if is_admin:
+        allowed = list(VALID_MANUFACTURERS)
+    else:
+        # Search across both allowed_sources and allowed_targets — with bidirectional
+        # search, any manufacturer in either pool can be used as the source.
+        src      = user.get("allowed_sources", [])
+        tgt      = user.get("allowed_targets", [])
+        combined = list(dict.fromkeys(src + tgt))   # deduplicated, order preserved
+        allowed  = combined or list(VALID_MANUFACTURERS)
 
     con = get_connection()
     try:

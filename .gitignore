@@ -1,0 +1,7 @@
+﻿config_claude.py
+__pycache__/
+*.pyc
+*.zip
+*.db
+*.duckdb
+.env
