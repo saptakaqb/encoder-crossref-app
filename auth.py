@@ -1,0 +1,532 @@
+"""
+auth.py
+=======
+JWT authentication and DynamoDB user operations for EncoderMatch.
+
+Changes from v1:
+  - Daily search limits (resets UTC midnight, not lifetime counter)
+  - Single active session enforcement (new login invalidates previous)
+  - SES notification placeholder when user hits daily limit
+
+AQB Solutions | May 2026
+"""
+
+import hashlib
+import logging
+import os
+import re
+import threading
+from datetime import datetime, timedelta
+from typing import Optional
+
+import boto3
+from boto3.dynamodb.conditions import Attr, Key
+from botocore.exceptions import ClientError
+from jose import JWTError, jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+# ── Config ─────────────────────────────────────────────────────────────────
+SECRET_KEY    = os.environ.get("JWT_SECRET_KEY", "dev-secret-change-before-prod")
+ALGORITHM     = "HS256"
+TOKEN_EXPIRE  = int(os.environ.get("TOKEN_EXPIRE_HOURS", 24))
+REGION        = os.environ.get("AWS_REGION", "ap-south-1")
+USERS_TABLE   = os.environ.get("DYNAMO_USERS_TABLE",  "encodermatch_users")
+ERRORS_TABLE  = os.environ.get("DYNAMO_ERRORS_TABLE", "encodermatch_errors")
+SES_SENDER    = os.environ.get("SES_SENDER_EMAIL", "")  # set once SES verified
+
+# ── Per-manufacturer table routing ─────────────────────────────────────────
+# History and feedback tables are split by manufacturer (client) for privacy.
+# Admin searches use the _admin suffix; end user searches use a slug of their
+# client name (e.g. 'posital' -> encodermatch_history_posital).
+
+def _client_slug(client: str, role: str = "enduser") -> str:
+    """Derive the table suffix for a user.
+    Admins always use 'admin'. End users get a sanitised slug of their client name.
+    e.g. client='Posital (FRABA)', role='enduser' -> 'posital_fraba'
+         client='AQB Solutions',  role='superadmin' -> 'admin'
+    """
+    if role in ("superadmin", "clientadmin"):
+        return "admin"
+    slug = re.sub(r"[^a-z0-9]", "_", client.lower().strip())
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug or "unknown"
+
+
+def _hist_table(slug: str) -> str:
+    return f"encodermatch_history_{slug}"
+
+
+def _fb_table(slug: str) -> str:
+    return f"encodermatch_feedback_{slug}"
+
+
+def create_manufacturer_tables(client: str, role: str = "enduser") -> None:
+    """
+    Create per-manufacturer history and feedback tables for a new user.
+    Called from the user-creation endpoint. Does NOT wait for ACTIVE status
+    to avoid blocking the HTTP response — tables are ready within a few seconds,
+    well before the new user's first search.
+    """
+    slug = _client_slug(client, role)
+    dynamo    = get_dynamo()
+    existing  = {t.name for t in dynamo.tables.all()}
+
+    hist_name = _hist_table(slug)
+    fb_name   = _fb_table(slug)
+
+    if hist_name not in existing:
+        dynamo.create_table(
+            TableName=hist_name,
+            KeySchema=[
+                {"AttributeName": "userId",    "KeyType": "HASH"},
+                {"AttributeName": "timestamp", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "userId",    "AttributeType": "S"},
+                {"AttributeName": "timestamp", "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        logging.getLogger("auth").info(f"DynamoDB: creating table {hist_name}")
+
+    if fb_name not in existing:
+        dynamo.create_table(
+            TableName=fb_name,
+            KeySchema=[
+                {"AttributeName": "userId", "KeyType": "HASH"},
+                {"AttributeName": "sk",     "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "userId", "AttributeType": "S"},
+                {"AttributeName": "sk",     "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+
+security = HTTPBearer(auto_error=False)
+
+# ── DynamoDB client ────────────────────────────────────────────────────────
+_dynamo = None
+
+def get_dynamo():
+    global _dynamo
+    if _dynamo is None:
+        _dynamo = boto3.resource("dynamodb", region_name=REGION)
+    return _dynamo
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _today_utc() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+
+# ── Password ───────────────────────────────────────────────────────────────
+
+def hash_password(password: str) -> str:
+    salt = "encodermatch_2026"
+    return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return hash_password(plain) == hashed
+
+
+# ── JWT ────────────────────────────────────────────────────────────────────
+
+def create_token(email: str, session_id: str) -> str:
+    """
+    JWT now embeds session_id (sid claim).
+    Validated against DynamoDB active_session_id on every authenticated request.
+    New login overwrites active_session_id -> old tokens get 401.
+    """
+    expire = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE)
+    return jwt.encode(
+        {"sub": email, "sid": session_id, "exp": expire},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+
+def decode_token(token: str) -> tuple[Optional[str], Optional[str]]:
+    """Returns (email, session_id). Both None on any error."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload.get("sub"), payload.get("sid")
+    except JWTError:
+        return None, None
+
+
+# ── Session management ─────────────────────────────────────────────────────
+
+def store_session(email: str, session_id: str) -> None:
+    """
+    Write active_session_id to user record at login.
+    Previous session_id is overwritten — that session gets 401 on next request.
+    """
+    table = get_dynamo().Table(USERS_TABLE)
+    table.update_item(
+        Key={"userId": email},
+        UpdateExpression="SET active_session_id = :sid, last_login = :ts",
+        ExpressionAttributeValues={
+            ":sid": session_id,
+            ":ts":  datetime.utcnow().isoformat(),
+        },
+    )
+
+
+# ── DynamoDB user operations ───────────────────────────────────────────────
+
+def get_user(email: str) -> Optional[dict]:
+    table = get_dynamo().Table(USERS_TABLE)
+    resp  = table.get_item(Key={"userId": email})
+    return resp.get("Item")
+
+
+def authenticate_user(email: str, password: str) -> Optional[dict]:
+    user = get_user(email)
+    if not user:
+        return None
+    if not verify_password(password, user.get("password_hash", "")):
+        return None
+    return user
+
+
+def _notify_limit_reached_async(user: dict) -> None:
+    """
+    Fire-and-forget: log + optional SES when user hits daily limit.
+    TODO: Uncomment SES block once:
+      1. SES sender email verified in ap-south-1
+      2. SES production access granted (out of sandbox)
+      3. Fargate task role has ses:SendEmail permission
+    """
+    def _send():
+        name   = user.get("name", user.get("userId", "Unknown"))
+        email  = user.get("userId", "")
+        client = user.get("client", "")
+        limit  = user.get("searches_limit", 0)
+        admin  = user.get("admin_email", "")
+        today  = _today_utc()
+        print(
+            f"[DAILY LIMIT] {name} ({email}) · client={client} "
+            f"hit daily limit of {limit} on {today}"
+        )
+        # ── SES (uncomment when ready) ──────────────────────────────────
+        # if not SES_SENDER:
+        #     return
+        # try:
+        #     ses = boto3.client("ses", region_name=REGION)
+        #     ses.send_email(
+        #         Source=SES_SENDER,
+        #         Destination={"ToAddresses": [admin]},
+        #         Message={
+        #             "Subject": {"Data": f"[EncoderMatch] {name} hit daily limit"},
+        #             "Body": {"Text": {"Data": (
+        #                 f"User: {name} ({email})\n"
+        #                 f"Client: {client}\n"
+        #                 f"Daily limit: {limit}\n"
+        #                 f"Date: {today}\n\n"
+        #                 f"Adjust in the admin console."
+        #             )}},
+        #         },
+        #     )
+        # except Exception as e:
+        #     print(f"[SES] Notification failed: {e}")
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def increment_search_count(email: str) -> dict:
+    """
+    Daily search limit — resets at UTC midnight.
+
+    1. Read user record.
+    2. If last_search_date != today -> new day, reset counter to 1 atomically.
+    3. If same day and used >= limit -> 403 + async notification.
+    4. Conditional increment (guards concurrent requests with DynamoDB condition).
+
+    Returns: updated user record (ALL_NEW).
+    Raises: HTTPException 403 on limit or lock.
+    """
+    table = get_dynamo().Table(USERS_TABLE)
+    user  = get_user(email)
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.get("status") == "locked":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Account locked. Contact {user.get('admin_email', 'your administrator')}.",
+        )
+    if user.get("status") == "invited":
+        raise HTTPException(status_code=403, detail="Account not yet activated.")
+
+    today      = _today_utc()
+    last_date  = user.get("last_search_date", "")
+    limit      = int(user.get("searches_limit", 100))
+    used_today = int(user.get("searches_used_today", 0)) if last_date == today else 0
+
+    if used_today >= limit:
+        _notify_limit_reached_async(user)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Daily search limit of {limit} reached. "
+                f"Resets at midnight UTC. "
+                f"Contact {user.get('admin_email', 'your administrator')} to adjust."
+            ),
+        )
+
+    try:
+        if last_date != today:
+            # New day — reset to 1 and stamp date
+            resp = table.update_item(
+                Key={"userId": email},
+                UpdateExpression=(
+                    "SET searches_used_today = :one, last_search_date = :today"
+                ),
+                ExpressionAttributeValues={":one": 1, ":today": today},
+                ReturnValues="ALL_NEW",
+            )
+        else:
+            # Same day — atomic conditional increment
+            resp = table.update_item(
+                Key={"userId": email},
+                UpdateExpression="ADD searches_used_today :one",
+                ConditionExpression="searches_used_today < :limit",
+                ExpressionAttributeValues={":one": 1, ":limit": limit},
+                ReturnValues="ALL_NEW",
+            )
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            _notify_limit_reached_async(user)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Daily search limit of {limit} reached. Resets at midnight UTC.",
+            )
+        raise
+
+    return resp["Attributes"]
+
+
+def add_history(email: str, record: dict, slug: str = "admin") -> None:
+    table = get_dynamo().Table(_hist_table(slug))
+    table.put_item(Item={
+        "userId":    email,
+        "timestamp": datetime.utcnow().isoformat(),
+        **record,
+    })
+
+
+def get_history(email: str, limit: int = 20, slug: str = "admin") -> list:
+    table = get_dynamo().Table(_hist_table(slug))
+    resp  = table.query(
+        KeyConditionExpression=Key("userId").eq(email),
+        ScanIndexForward=False,
+        Limit=limit,
+    )
+    return resp.get("Items", [])
+
+
+def log_error(email: str, endpoint: str, status_code: int, error_msg: str,
+              extra: dict | None = None) -> None:
+    """
+    Write an error event to encodermatch_errors.
+    Called on match/explain failures. Never raises — always fails silently.
+    """
+    try:
+        item = {
+            "userId":     email,
+            "timestamp":  datetime.utcnow().isoformat(),
+            "endpoint":   endpoint,
+            "status_code": status_code,
+            "error_msg":  str(error_msg)[:500],  # cap length
+        }
+        if extra:
+            item.update({k: str(v)[:200] for k, v in extra.items()})
+        get_dynamo().Table(ERRORS_TABLE).put_item(Item=item)
+    except Exception:
+        pass  # never crash on error logging
+
+
+def get_user_errors(email: str, limit: int = 50) -> list:
+    try:
+        table = get_dynamo().Table(ERRORS_TABLE)
+        resp  = table.query(
+            KeyConditionExpression=Key("userId").eq(email),
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+        return resp.get("Items", [])
+    except Exception:
+        return []
+
+
+# ── Feedback (thumbs up / down) ───────────────────────────────────────────────
+
+def add_feedback(email: str, search_id: str, candidate_pn: str,
+                 source_pn: str, is_good_match: bool, slug: str = "admin") -> None:
+    """Upsert feedback for one result card into the manufacturer-specific table."""
+    sk = f"{search_id}#{candidate_pn}"
+    get_dynamo().Table(_fb_table(slug)).put_item(Item={
+        "userId":                email,
+        "sk":                    sk,
+        "search_id":             search_id,
+        "candidate_part_number": candidate_pn,
+        "source_part_number":    source_pn,
+        "is_good_match":         is_good_match,
+        "timestamp":             datetime.utcnow().isoformat(),
+    })
+
+
+def delete_feedback(email: str, search_id: str, candidate_pn: str,
+                    slug: str = "admin") -> None:
+    """Remove a feedback record (user toggled off their reaction)."""
+    sk = f"{search_id}#{candidate_pn}"
+    get_dynamo().Table(_fb_table(slug)).delete_item(
+        Key={"userId": email, "sk": sk}
+    )
+
+
+def get_feedback_for_search(email: str, search_id: str,
+                             slug: str = "admin") -> list:
+    """Return all feedback for a specific search session (for button state restore)."""
+    try:
+        table = get_dynamo().Table(_fb_table(slug))
+        resp  = table.query(
+            KeyConditionExpression=(
+                Key("userId").eq(email) &
+                Key("sk").begins_with(search_id + "#")
+            ),
+        )
+        return resp.get("Items", [])
+    except Exception:
+        return []
+
+
+def get_user_feedback(email: str, limit: int = 50, slug: str = "admin") -> list:
+    """Return most-recent feedback records for the admin Feedback tab."""
+    try:
+        table = get_dynamo().Table(_fb_table(slug))
+        resp  = table.query(
+            KeyConditionExpression=Key("userId").eq(email),
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+        return resp.get("Items", [])
+    except Exception:
+        return []
+
+
+def add_heartbeat(email: str, minutes: int = 5) -> None:
+    """
+    Atomically increment total_time_spent_minutes by `minutes`.
+    DynamoDB ADD creates the attribute if it doesn't exist.
+    Called every 5 min by the frontend while the tab is visible.
+    Never raises.
+    """
+    try:
+        get_dynamo().Table(USERS_TABLE).update_item(
+            Key={"userId": email},
+            UpdateExpression="ADD total_time_spent_minutes :m SET last_seen = :ts",
+            ExpressionAttributeValues={
+                ":m":  minutes,
+                ":ts": datetime.utcnow().isoformat(),
+            },
+        )
+    except Exception:
+        pass
+
+
+def get_all_users_for_client(client: str) -> list:
+    table = get_dynamo().Table(USERS_TABLE)
+    resp  = table.scan(
+        FilterExpression=Attr("client").eq(client),
+    )
+    return resp.get("Items", [])
+
+
+def update_user(email: str, updates: dict) -> None:
+    table = get_dynamo().Table(USERS_TABLE)
+    expressions = []
+    attr_names  = {}
+    attr_values = {}
+    for i, (key, val) in enumerate(updates.items()):
+        ph   = f":v{i}"
+        nph  = f"#k{i}"
+        expressions.append(f"{nph} = {ph}")
+        attr_names[nph]  = key
+        attr_values[ph]  = val
+    table.update_item(
+        Key={"userId": email},
+        UpdateExpression="SET " + ", ".join(expressions),
+        ExpressionAttributeNames=attr_names,
+        ExpressionAttributeValues=attr_values,
+    )
+
+
+# ── FastAPI dependencies ────────────────────────────────────────────────────
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
+    """
+    1. Decode JWT -> (email, session_id).
+    2. Look up user in DynamoDB.
+    3. Compare token's session_id against active_session_id in DB.
+       Mismatch = another login has superseded this session -> 401.
+    """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = credentials.credentials
+    email, session_id = decode_token(token)
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = get_user(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    # Single-session guard (skip for legacy tokens without sid claim)
+    if session_id and user.get("active_session_id") and \
+            user["active_session_id"] != session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session superseded — please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user
+
+
+def delete_user(email: str) -> None:
+    """Permanently delete a user record. Admin use only."""
+    table = get_dynamo().Table(USERS_TABLE)
+    table.delete_item(Key={"userId": email})
+
+
+def get_all_users() -> list:
+    """Scan entire users table. Superadmin use only."""
+    table = get_dynamo().Table(USERS_TABLE)
+    resp  = table.scan()
+    return resp.get("Items", [])
+
+
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in ("clientadmin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def require_superadmin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    return user
