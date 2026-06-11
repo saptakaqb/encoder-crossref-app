@@ -646,28 +646,282 @@ function AppNav({ page, setPage, user, dark, onLogout, collapsed, setCollapsed }
   );
 }
 
+// ── ProductSelectorPage — landing page after login ────────────────────────────
+// Appears for all roles. User picks a product category; the page routes them
+// to the appropriate section based on their role and selection.
+function ProductSelectorPage({ dark, user, onSelect }) {
+  const bg     = dark?'#0a0f1a':'#f4f6fa';
+  const cardBg = dark?'#111827':'#ffffff';
+  const border = dark?'#1e293b':'#e2e8f0';
+  const textPri= dark?'#f1f5f9':'#111827';
+  const textSec= dark?'#94a3b8':'#64748b';
+  const textMut= dark?'#475569':'#94a3b8';
+
+  const isAdmin = user?.role==='superadmin'||user?.role==='clientadmin';
+
+  // Where "Encoders" routes to depends on role
+  const encoderDest = isAdmin ? 'admin' : 'search';
+
+  const [hovEnc, setHovEnc] = React.useState(false);
+
+  const EncoderIcon = ()=>(
+    <svg width={52} height={52} viewBox="0 0 52 52" fill="none">
+      <circle cx="26" cy="26" r="24" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="1.5" opacity="0.4"/>
+      <circle cx="26" cy="26" r="16" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="1.5" opacity="0.6"/>
+      <circle cx="26" cy="26" r="8"  stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2"/>
+      <circle cx="26" cy="26" r="3"  fill={dark?'#818cf8':'#4f46e5'}/>
+      {[0,45,90,135,180,225,270,315].map(deg=>{
+        const r=deg*Math.PI/180;
+        return <line key={deg}
+          x1={26+9*Math.cos(r)} y1={26+9*Math.sin(r)}
+          x2={26+15*Math.cos(r)} y2={26+15*Math.sin(r)}
+          stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="1.5" strokeLinecap="round"/>;
+      })}
+      <line x1="26" y1="2"  x2="26" y2="8"  stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
+      <line x1="26" y1="44" x2="26" y2="50" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
+      <line x1="2"  y1="26" x2="8"  y2="26" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
+      <line x1="44" y1="26" x2="50" y2="26" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+
+  const ValveIcon = ()=>(
+    <svg width={52} height={52} viewBox="0 0 52 52" fill="none" opacity="0.5">
+      <rect x="10" y="22" width="32" height="8" rx="2" stroke={textMut} strokeWidth="1.5"/>
+      <line x1="26" y1="4"  x2="26" y2="22" stroke={textMut} strokeWidth="2"  strokeLinecap="round"/>
+      <line x1="26" y1="30" x2="26" y2="48" stroke={textMut} strokeWidth="2"  strokeLinecap="round"/>
+      <circle cx="26" cy="16" r="6" stroke={textMut} strokeWidth="1.5"/>
+      <line x1="22" y1="16" x2="30" y2="16" stroke={textMut} strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="26" y1="12" x2="26" y2="20" stroke={textMut} strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="12" cy="26" r="3" stroke={textMut} strokeWidth="1.3"/>
+      <circle cx="40" cy="26" r="3" stroke={textMut} strokeWidth="1.3"/>
+    </svg>
+  );
+
+  const firstName = (user?.name||'').split(' ')[0] || 'there';
+
+  return (
+    <div style={{flex:1, background:bg, display:'flex', flexDirection:'column',
+      alignItems:'center', justifyContent:'center', padding:'40px 24px', overflowY:'auto'}}>
+
+      {/* Greeting */}
+      <div style={{textAlign:'center', marginBottom:48}}>
+        <div style={{fontSize:13, fontWeight:600, color:textMut, textTransform:'uppercase',
+          letterSpacing:'0.1em', marginBottom:10}}>
+          Welcome back, {firstName}
+        </div>
+        <h1 style={{fontSize:28, fontWeight:700, color:textPri, letterSpacing:'-0.02em',
+          margin:0, marginBottom:8}}>
+          Select a product
+        </h1>
+        <p style={{fontSize:14, color:textSec, margin:0}}>
+          Choose the hardware category you want to work with
+        </p>
+      </div>
+
+      {/* Cards */}
+      <div style={{display:'flex', gap:24, maxWidth:720, width:'100%', alignItems:'stretch'}}>
+
+        {/* ── Encoders — active ── */}
+        <div
+          onClick={()=>onSelect(encoderDest)}
+          onMouseEnter={()=>setHovEnc(true)}
+          onMouseLeave={()=>setHovEnc(false)}
+          style={{
+            flex:1, background:cardBg, borderRadius:14, padding:'36px 32px',
+            cursor:'pointer', display:'flex', flexDirection:'column', gap:0,
+            transition:'all 0.2s ease',
+            border: hovEnc
+              ? `1.5px solid ${dark?'#818cf8':'#6366f1'}`
+              : `1.5px solid ${dark?'#312e81':'#c7d2fe'}`,
+            boxShadow: hovEnc
+              ? `0 0 0 1px ${dark?'rgba(129,140,248,0.3)':'rgba(99,102,241,0.2)'}, 0 8px 32px ${dark?'rgba(99,102,241,0.25)':'rgba(99,102,241,0.12)'}, 0 0 60px ${dark?'rgba(99,102,241,0.12)':'rgba(99,102,241,0.06)'}`
+              : `0 0 0 0px transparent, 0 2px 12px ${dark?'rgba(0,0,0,0.3)':'rgba(0,0,0,0.06)'}`,
+            transform: hovEnc ? 'translateY(-2px)' : 'none',
+          }}>
+          {/* Icon */}
+          <div style={{marginBottom:24}}><EncoderIcon/></div>
+
+          {/* Badge */}
+          <div style={{marginBottom:12}}>
+            <span style={{fontSize:10.5, fontWeight:700, padding:'3px 9px', borderRadius:20,
+              background:dark?'#1e1b4b':'#eef2ff', color:dark?'#818cf8':'#4f46e5',
+              textTransform:'uppercase', letterSpacing:'0.06em'}}>
+              Available
+            </span>
+          </div>
+
+          <div style={{fontSize:22, fontWeight:700, color:textPri, marginBottom:8,
+            letterSpacing:'-0.02em'}}>Encoders</div>
+          <div style={{fontSize:13.5, color:textSec, lineHeight:1.6, marginBottom:24, flex:1}}>
+            Cross-reference rotary and linear encoders across 6 manufacturer catalogues.
+            1.65M+ variants scored by physical and electrical compatibility.
+          </div>
+
+          {/* Stats row */}
+          <div style={{display:'flex', gap:16, marginBottom:28}}>
+            {[['1.65M+','Variants'],['6','Manufacturers'],['42','Match fields']].map(([val,label])=>(
+              <div key={label}>
+                <div style={{fontSize:15, fontWeight:700, color:dark?'#818cf8':'#4f46e5',
+                  fontVariantNumeric:'tabular-nums'}}>{val}</div>
+                <div style={{fontSize:11, color:textMut}}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* CTA */}
+          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'11px 18px', borderRadius:8, background:dark?'#1e1b4b':'#4f46e5',
+            color:'white', fontWeight:600, fontSize:13.5, transition:'background 0.15s',
+            ...(hovEnc?{background:dark?'#312e81':'#4338ca'}:{})}}>
+            <span>Launch Encoder Cross-Reference</span>
+            <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+              <path d="M3 8h10M9 4l4 4-4 4" stroke="white" strokeWidth="1.6"
+                strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+        </div>
+
+        {/* ── Valves — placeholder ── */}
+        <div style={{
+          flex:1, background:cardBg, borderRadius:14, padding:'36px 32px',
+          display:'flex', flexDirection:'column', gap:0,
+          border:`1.5px solid ${border}`,
+          boxShadow:`0 2px 12px ${dark?'rgba(0,0,0,0.2)':'rgba(0,0,0,0.04)'}`,
+          opacity:0.65, pointerEvents:'none',
+        }}>
+          {/* Icon */}
+          <div style={{marginBottom:24}}><ValveIcon/></div>
+
+          {/* Badge */}
+          <div style={{marginBottom:12}}>
+            <span style={{fontSize:10.5, fontWeight:700, padding:'3px 9px', borderRadius:20,
+              background:dark?'#1e293b':'#f1f5f9', color:textMut,
+              textTransform:'uppercase', letterSpacing:'0.06em'}}>
+              Coming Soon
+            </span>
+          </div>
+
+          <div style={{fontSize:22, fontWeight:700, color:textPri, marginBottom:8,
+            letterSpacing:'-0.02em'}}>Valves</div>
+          <div style={{fontSize:13.5, color:textSec, lineHeight:1.6, marginBottom:24, flex:1}}>
+            Industrial valve cross-reference across leading manufacturer catalogues.
+            Scoring by pressure rating, connection standard, and body material.
+          </div>
+
+          {/* Stats row — placeholder */}
+          <div style={{display:'flex', gap:16, marginBottom:28}}>
+            {[['—','Variants'],['—','Manufacturers'],['—','Match fields']].map(([val,label])=>(
+              <div key={label}>
+                <div style={{fontSize:15, fontWeight:700, color:textMut,
+                  fontVariantNumeric:'tabular-nums'}}>{val}</div>
+                <div style={{fontSize:11, color:textMut}}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Disabled CTA */}
+          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'11px 18px', borderRadius:8,
+            background:dark?'#1e293b':'#f1f5f9',
+            color:textMut, fontWeight:600, fontSize:13.5}}>
+            <span>In Development</span>
+            <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+              <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6"
+                strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Footer note */}
+      <div style={{marginTop:32, fontSize:12, color:textMut}}>
+        You can switch between products at any time from the sidebar.
+      </div>
+    </div>
+  );
+}
+
+
 // ── LoginPage ──────────────────────────────────────────────────────────────
 function LoginPage({ onLogin, dark }) {
   const [email,setEmail]=React.useState('');
-  const [password,setPassword]=React.useState('');
+  const [password,setPassword]=React.useState('');   // state — triggers re-renders
+  const pwRef=React.useRef('');                       // ref — always current, immune to stale closure
+  const [pwDisplay,setPwDisplay]=React.useState(''); // masked display value shown in input
   const [loading,setLoading]=React.useState(false);
   const [error,setError]=React.useState('');
   const [showPw,setShowPw]=React.useState(false);
+  const pwTimerRef=React.useRef(null);
   const aqbNavy='#1a3570', aqbOrange='#e87820';
+
+  // When toggling show → hide: reset display to all-dots and kill any pending reveal.
+  // Reads pwRef.current (always fresh) — avoids stale password state.
+  React.useEffect(()=>{
+    if(!showPw){ clearTimeout(pwTimerRef.current); setPwDisplay('•'.repeat(pwRef.current.length)); }
+  },[showPw]);
+
+  // Kill reveal timer on unmount
+  React.useEffect(()=>()=>clearTimeout(pwTimerRef.current),[]);
+
+  // Peek-last-char handler.
+  // Uses pwRef for all length tracking — immune to stale closure on fast typing.
+  const handlePwChange=(e)=>{
+    const raw=e.target.value;
+    if(showPw){ pwRef.current=raw; setPassword(raw); return; }
+
+    const oldLen=pwRef.current.length; // ref = always the real current length
+    const newLen=raw.length;
+
+    if(newLen===0){
+      pwRef.current=''; setPassword(''); setPwDisplay('');
+      clearTimeout(pwTimerRef.current); return;
+    }
+
+    if(newLen>oldLen){
+      // Characters added — new chars are the suffix beyond what we already tracked
+      const added=raw.slice(oldLen);
+      pwRef.current=pwRef.current+added;
+      setPassword(pwRef.current);
+      setPwDisplay('•'.repeat(pwRef.current.length-added.length)+added);
+      clearTimeout(pwTimerRef.current);
+      pwTimerRef.current=setTimeout(
+        ()=>setPwDisplay('•'.repeat(pwRef.current.length)), // ref in timer = always fresh
+        800
+      );
+    } else {
+      // Characters deleted — trim and mask immediately
+      pwRef.current=pwRef.current.slice(0,newLen);
+      setPassword(pwRef.current);
+      setPwDisplay('•'.repeat(newLen));
+      clearTimeout(pwTimerRef.current);
+    }
+  };
   const border=dark?'#1e293b':'#e2e8f0', textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', inputBg=dark?'#0f172a':'#f8fafc';
   const handleSubmit=async(e)=>{
     e.preventDefault();
     if(!email){setError('Email is required');return;}
+    if(!pwRef.current){setError('Password is required');return;}
     setError(''); setLoading(true);
     if (API_MODE==='live') {
       try {
         const resp=await fetch(`${FASTAPI_BASE_URL}/api/auth/login`,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({email,password})
+          body:JSON.stringify({email,password:pwRef.current})
         });
         const data=await resp.json();
-        if(!resp.ok){setError(data.detail||'Login failed');setLoading(false);return;}
+        if(!resp.ok){
+          // Pydantic 422 returns detail as an array of objects; all others return a string.
+          // Always coerce to string so React never tries to render an object as a child.
+          const raw=data.detail;
+          const msg=typeof raw==='string'
+            ? raw
+            : Array.isArray(raw)
+              ? raw.map(d=>d.msg||String(d)).join(' · ')
+              : 'Login failed. Please try again.';
+          setError(msg); setLoading(false); return;
+        }
         setLoading(false);
         onLogin(data.user.role, data.access_token, data.user);
       } catch(e) {
@@ -707,8 +961,8 @@ function LoginPage({ onLogin, dark }) {
             </div>
             <span style={{fontSize:13,fontWeight:600,color:'rgba(255,255,255,0.6)',letterSpacing:'0.04em',textTransform:'uppercase'}}>EncoderMatch</span>
           </div>
-          <h1 style={{margin:'0 0 16px',fontSize:34,fontWeight:700,color:'#ffffff',letterSpacing:'-0.03em',lineHeight:1.2}}>AI-powered encoder<br/>cross-reference</h1>
-          <p style={{margin:'0 0 40px',fontSize:14.5,color:'rgba(255,255,255,0.55)',lineHeight:1.65,maxWidth:320}}>Find compatible replacement encoders from 1.45M+ variants across Kübler, EPC, Lika, Sick, and Posital catalogues — ranked by field-by-field compatibility score.</p>
+          <h1 style={{margin:'0 0 16px',fontSize:34,fontWeight:700,color:'#ffffff',letterSpacing:'-0.03em',lineHeight:1.2}}>AI-powered hardware<br/>cross-reference</h1>
+          <p style={{margin:'0 0 40px',fontSize:14.5,color:'rgba(255,255,255,0.55)',lineHeight:1.65,maxWidth:320}}>Find compatible replacement components from 1.65M+ variants across leading manufacturer catalogues — ranked by field-by-field compatibility score.</p>
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {[{icon:'⚡',text:'Typically 2–5 seconds per search'},{icon:'🎯',text:'Two-tier scoring — physical fit weighted 70%, secondary specs 30%'},{icon:'🔒',text:'Role-based access — each user sees only their licensed catalogue'}].map(f=>(
               <div key={f.text} style={{display:'flex',alignItems:'center',gap:10}}>
@@ -742,7 +996,7 @@ function LoginPage({ onLogin, dark }) {
                   <button type="button" style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:aqbNavy,fontFamily:'IBM Plex Sans, sans-serif',padding:0}}>Forgot password?</button>
                 </div>
                 <div style={{position:'relative'}}>
-                  <input type={showPw?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" style={{...iStyle,paddingRight:38}} onFocus={e=>e.target.style.borderColor=aqbNavy} onBlur={e=>e.target.style.borderColor=border}/>
+                  <input type="text" autoComplete="current-password" value={showPw?password:pwDisplay} onChange={handlePwChange} placeholder="••••••••" style={{...iStyle,paddingRight:38}} onFocus={e=>e.target.style.borderColor=aqbNavy} onBlur={e=>e.target.style.borderColor=border}/>
                   <button type="button" onClick={()=>setShowPw(!showPw)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:textSec,padding:0,display:'flex'}}>
                     <svg width={16} height={16} viewBox="0 0 16 16" fill="none"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" stroke="currentColor" strokeWidth="1.3"/><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.3"/>{!showPw&&<line x1="2" y1="2" x2="14" y2="14" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>}</svg>
                   </button>
@@ -1694,71 +1948,664 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
   const [hov,setHov]=React.useState(null);
   const [deleting,setDeleting]=React.useState(null);
-  const handleDelete=async(userId,e)=>{
+
+  // ── Separate client admins from end users, then group ─────────────────────
+  const clientAdmins = users.filter(u => u.role === 'clientadmin');
+  const endUsers     = users.filter(u => u.role !== 'clientadmin');
+
+  // Map each end user to their creating admin (by created_by or admin_email)
+  const usersByAdmin = {};
+  const directUsers  = [];
+  for (const u of endUsers) {
+    const creator = clientAdmins.find(ca => ca.id === u.created_by);
+    if (creator) {
+      if (!usersByAdmin[creator.id]) usersByAdmin[creator.id] = [];
+      usersByAdmin[creator.id].push(u);
+    } else {
+      directUsers.push(u);
+    }
+  }
+
+  // Name lookup map: id → display name (covers all roles since superadmins appear in the list)
+  const nameById = {};
+  for (const u of users) { if (u.id) nameById[u.id] = u.name; }
+
+  // Expand state — all client admins expanded by default
+  const [expanded, setExpanded] = React.useState(
+    () => new Set(clientAdmins.map(ca => ca.id))
+  );
+  const toggleExpand = (id, e) => {
     e.stopPropagation();
-    if(!window.confirm(`Delete user ${userId}? This cannot be undone.`)) return;
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleDelete = async (userId, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete ${userId}? This cannot be undone.`)) return;
     setDeleting(userId);
     try {
-      const resp=await fetch(`/api/admin/users/${encodeURIComponent(userId)}`,{method:'DELETE',headers:{'Authorization':`Bearer ${authToken}`}});
-      if(resp.ok) onRefresh&&onRefresh(); else alert('Failed to delete user.');
-    } catch(_){alert('Error deleting user.');}
+      const resp = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`,
+        {method:'DELETE', headers:{'Authorization':`Bearer ${authToken}`}});
+      if (resp.ok) onRefresh&&onRefresh(); else alert('Failed to delete.');
+    } catch (_) { alert('Error deleting.'); }
     setDeleting(null);
   };
-  const statusBadge=(s)=>{
-    const cfg={active:{bg:dark?'#14532d':'#dcfce7',text:dark?'#4ade80':'#15803d',label:'Active'},locked:{bg:dark?'#450a0a':'#fee2e2',text:dark?'#f87171':'#b91c1c',label:'Locked'},invited:{bg:dark?'#1e3a5f':'#dbeafe',text:dark?'#60a5fa':'#1e40af',label:'Invited'}};
-    const c=cfg[s]||cfg.active;
+
+  const statusBadge = (s) => {
+    const cfg = {
+      active:  {bg:dark?'#14532d':'#dcfce7', text:dark?'#4ade80':'#15803d', label:'Active'},
+      locked:  {bg:dark?'#450a0a':'#fee2e2', text:dark?'#f87171':'#b91c1c', label:'Locked'},
+      invited: {bg:dark?'#1e3a5f':'#dbeafe', text:dark?'#60a5fa':'#1e40af', label:'Invited'},
+    };
+    const c = cfg[s] || cfg.active;
     return <span style={{fontSize:11,fontWeight:600,padding:'2px 7px',borderRadius:4,background:c.bg,color:c.text}}>{c.label}</span>;
   };
-  return (
-    <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden',boxShadow:dark?'none':'0 1px 4px rgba(0,0,0,0.04)'}}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px 90px 70px 44px',padding:'10px 20px',background:dark?'#0f172a':'#f8fafc',borderBottom:`1px solid ${border}`}}>
-        {['User','Email','Searches','Databases','Dir','Status',''].map(h=><span key={h} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut}}>{h}</span>)}
-      </div>
-      {users.map((u,i)=>{
-        const pct=u.used/u.limit, barColor=pct>=1?'#dc2626':pct>=0.8?'#d97706':'#1855d4';
-        return (
-          <div key={u.id} onMouseEnter={()=>setHov(u.id)} onMouseLeave={()=>setHov(null)}
-            onClick={()=>onSelectUser&&onSelectUser(u)}
-            style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px 90px 70px 44px',padding:'12px 20px',alignItems:'center',borderBottom:i<users.length-1?`1px solid ${border}`:'none',background:hov===u.id?(dark?'#1e293b':'#f8fafc'):'transparent',transition:'background 0.12s',cursor:'pointer'}}>
-            <div style={{display:'flex',alignItems:'center',gap:9}}>
-              <div style={{width:28,height:28,borderRadius:'50%',flexShrink:0,background:dark?'#1e293b':'#f1f5f9',border:`1px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:dark?'#94a3b8':'#64748b'}}>
-                {u.name.split(' ').map(p=>p[0]).join('')}
-              </div>
-              <div>
-                <div style={{fontSize:13,fontWeight:600,color:textPri}}>{u.name}</div>
-                <div style={{fontSize:11,color:textMut}}>{u.last}</div>
-              </div>
-            </div>
-            <span style={{fontSize:12,color:textSec}}>{u.email}</span>
-            <div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                <span style={{fontSize:11.5,fontWeight:600,color:pct>=1?'#dc2626':pct>=0.8?'#d97706':textPri,fontVariantNumeric:'tabular-nums'}}>{u.used} / {u.limit}</span>
-                <span style={{fontSize:10.5,color:textMut}}>{Math.round(pct*100)}%</span>
-              </div>
-              <div style={{height:4,borderRadius:2,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
-                <div style={{width:`${Math.min(100,pct*100)}%`,height:'100%',borderRadius:2,background:barColor}}/>
-              </div>
-            </div>
-            <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
-              {u.dbs.map(db=><span key={db} style={{fontSize:10.5,fontWeight:600,padding:'1px 5px',borderRadius:3,background:dark?'#1e293b':'#f1f5f9',color:textSec,border:`1px solid ${border}`,textTransform:'capitalize'}}>{db}</span>)}
-            </div>
-            <span style={{fontSize:11.5,color:u.dir==='bidirectional'?(dark?'#a78bfa':'#7c3aed'):textSec,fontWeight:u.dir==='bidirectional'?600:400}}>
-              {u.dir==='bidirectional'?'⇄ Bidirectional':'→ Source only'}
-            </span>
-            {statusBadge(u.status)}
-            <button onClick={(e)=>handleDelete(u.id,e)} disabled={deleting===u.id}
-              style={{background:'transparent',border:'none',cursor:'pointer',color:dark?'#475569':'#94a3b8',padding:4,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
-              onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
-              onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
-              title="Delete user">
-              <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </button>
+
+  // Grid: [20px chevron] [name] [email] [activity/quota] [target dbs] [status] [delete]
+  const COLS = '20px 1fr 1fr 165px 145px 70px 40px';
+
+  // ── Client admin row ───────────────────────────────────────────────────────
+  const ClientAdminRow = ({ ca, isLastInList }) => {
+    const children    = usersByAdmin[ca.id] || [];
+    const isExpanded  = expanded.has(ca.id);
+    const quota       = ca.user_creation_limit;
+    const quotaUsed   = children.length;
+    const quotaPct    = quota ? quotaUsed / quota : 0;
+    const qColor      = quotaPct >= 1 ? '#dc2626' : quotaPct >= 0.8 ? '#d97706' : '#7c3aed';
+    const isHov       = hov === ca.id;
+
+    return (
+      <>
+        <div
+          onMouseEnter={()=>setHov(ca.id)}
+          onMouseLeave={()=>setHov(null)}
+          onClick={()=>onSelectUser&&onSelectUser(ca)}
+          style={{
+            display:'grid', gridTemplateColumns:COLS,
+            padding:'11px 16px', alignItems:'center', gap:'0 8px',
+            background: isHov ? (dark?'#1a1040':'#f5f3ff') : (dark?'#120d2a':'#fdfcff'),
+            borderBottom: `1px solid ${border}`,
+            borderLeft: `3px solid #7c3aed`,
+            cursor:'pointer', transition:'background 0.12s',
+          }}>
+          {/* Chevron */}
+          <div onClick={e=>toggleExpand(ca.id,e)}
+            style={{display:'flex',alignItems:'center',justifyContent:'center',
+              width:20,height:20,borderRadius:4,cursor:'pointer',
+              color:dark?'#a78bfa':'#7c3aed', flexShrink:0,
+              transition:'background 0.1s'}}
+            onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.background=dark?'#2d1b69':'#ede9fe';}}
+            onMouseLeave={e=>{e.stopPropagation();e.currentTarget.style.background='transparent';}}>
+            <svg width={11} height={11} viewBox="0 0 11 11" fill="none"
+              style={{transform:isExpanded?'rotate(90deg)':'rotate(0deg)',transition:'transform 0.15s'}}>
+              <path d="M3.5 2l4 3.5-4 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </div>
-        );
-      })}
+
+          {/* Name + role badge */}
+          <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}>
+            <div style={{width:30,height:30,borderRadius:7,flexShrink:0,
+              background:'linear-gradient(135deg,#7c3aed,#a78bfa)',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              fontSize:11,fontWeight:700,color:'white',letterSpacing:'0.04em'}}>
+              {ca.name.split(' ').map(p=>p[0]).join('').toUpperCase().slice(0,2)}
+            </div>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:textPri,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ca.name}</div>
+              <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1,flexWrap:'wrap'}}>
+                <span style={{fontSize:10,fontWeight:700,padding:'1px 5px',borderRadius:3,
+                  background:dark?'#2d1b69':'#ede9fe',color:dark?'#a78bfa':'#7c3aed',
+                  textTransform:'uppercase',letterSpacing:'0.05em',flexShrink:0}}>Client Admin</span>
+                <span style={{fontSize:10.5,color:textMut}}>{ca.client}</span>
+                {ca.created_by&&<span style={{fontSize:10.5,color:textMut}}>
+                  · by <span style={{fontWeight:600,color:dark?'#94a3b8':'#475569'}}>{nameById[ca.created_by]||ca.created_by}</span>
+                </span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Email */}
+          <span style={{fontSize:12,color:textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ca.email}</span>
+
+          {/* User quota */}
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
+              <span style={{fontSize:11.5,fontWeight:600,color:qColor,fontVariantNumeric:'tabular-nums'}}>
+                {quotaUsed}{quota!=null?` / ${quota}`:''} users
+              </span>
+              {quota!=null&&<span style={{fontSize:10,color:textMut}}>{Math.round(quotaPct*100)}%</span>}
+            </div>
+            {quota!=null&&(
+              <div style={{height:4,borderRadius:2,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
+                <div style={{width:`${Math.min(100,quotaPct*100)}%`,height:'100%',borderRadius:2,background:qColor,transition:'width 0.3s'}}/>
+              </div>
+            )}
+          </div>
+
+          {/* Allowed target DBs */}
+          <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
+            {ca.dbs.map(db=>(
+              <span key={db} style={{fontSize:10.5,fontWeight:600,padding:'1px 5px',borderRadius:3,
+                background:dark?'#2d1b69':'#ede9fe',color:dark?'#a78bfa':'#7c3aed',
+                border:`1px solid ${dark?'#4c1d95':'#ddd6fe'}`,textTransform:'capitalize'}}>
+                {db}
+              </span>
+            ))}
+          </div>
+
+          {/* Status */}
+          {statusBadge(ca.status)}
+
+          {/* Delete */}
+          <button onClick={e=>handleDelete(ca.id,e)} disabled={deleting===ca.id}
+            style={{background:'transparent',border:'none',cursor:'pointer',
+              color:dark?'#475569':'#94a3b8',padding:4,
+              display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
+            onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
+            onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
+            title="Delete client admin">
+            <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
+              <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Child end users — shown when expanded */}
+        {isExpanded && children.map((u, ui) => (
+          <EndUserRow key={u.id} u={u} isChild={true}
+            isLast={ui===children.length-1 && isLastInList && directUsers.length===0}/>
+        ))}
+      </>
+    );
+  };
+
+  // ── End user row ────────────────────────────────────────────────────────────
+  const EndUserRow = ({ u, isChild, isLast }) => {
+    const pct      = u.limit > 0 ? u.used / u.limit : 0;
+    const barColor = pct>=1?'#dc2626':pct>=0.8?'#d97706':'#1855d4';
+    const isHov    = hov === u.id;
+
+    return (
+      <div
+        onMouseEnter={()=>setHov(u.id)}
+        onMouseLeave={()=>setHov(null)}
+        onClick={()=>onSelectUser&&onSelectUser(u)}
+        style={{
+          display:'grid', gridTemplateColumns:COLS,
+          padding:'10px 16px', alignItems:'center', gap:'0 8px',
+          background: isHov ? (dark?'#1e293b':'#f8fafc') : 'transparent',
+          borderBottom: !isLast ? `1px solid ${border}` : 'none',
+          // Blue left border for child rows, transparent for direct
+          borderLeft: isChild ? `3px solid ${dark?'#1e40af':'#93c5fd'}` : '3px solid transparent',
+          cursor:'pointer', transition:'background 0.12s',
+        }}>
+
+        {/* Connector dot for child rows, empty for direct */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
+          {isChild && (
+            <div style={{width:5,height:5,borderRadius:'50%',
+              background:dark?'#1e40af':'#93c5fd',flexShrink:0}}/>
+          )}
+        </div>
+
+        {/* Name */}
+        <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}>
+          <div style={{width:30,height:30,borderRadius:'50%',flexShrink:0,
+            background:dark?'#1e293b':'#f1f5f9',border:`1px solid ${border}`,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:11,fontWeight:700,color:dark?'#94a3b8':'#64748b'}}>
+            {u.name.split(' ').map(p=>p[0]).join('')}
+          </div>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:600,color:textPri,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{u.name}</div>
+            <div style={{fontSize:11,color:textMut}}>
+              {u.last&&u.last!=='—' ? `Last search: ${u.last}` : 'No searches yet'}
+            </div>
+            {!isChild&&u.created_by&&<div style={{fontSize:10.5,color:textMut,marginTop:1}}>
+              by <span style={{fontWeight:600,color:dark?'#94a3b8':'#475569'}}>{nameById[u.created_by]||u.created_by}</span>
+            </div>}
+          </div>
+        </div>
+
+        {/* Email */}
+        <span style={{fontSize:12,color:textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{u.email}</span>
+
+        {/* Search usage bar */}
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
+            <span style={{fontSize:11.5,fontWeight:600,fontVariantNumeric:'tabular-nums',
+              color:pct>=1?'#dc2626':pct>=0.8?'#d97706':textPri}}>
+              {u.used} / {u.limit}
+            </span>
+            <span style={{fontSize:10,color:textMut}}>{Math.round(pct*100)}%</span>
+          </div>
+          <div style={{height:4,borderRadius:2,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
+            <div style={{width:`${Math.min(100,pct*100)}%`,height:'100%',borderRadius:2,background:barColor}}/>
+          </div>
+        </div>
+
+        {/* Target DBs */}
+        <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
+          {u.dbs.map(db=>(
+            <span key={db} style={{fontSize:10.5,fontWeight:600,padding:'1px 5px',borderRadius:3,
+              background:dark?'#1e293b':'#f1f5f9',color:textSec,
+              border:`1px solid ${border}`,textTransform:'capitalize'}}>
+              {db}
+            </span>
+          ))}
+        </div>
+
+        {/* Status */}
+        {statusBadge(u.status)}
+
+        {/* Delete */}
+        <button onClick={e=>handleDelete(u.id,e)} disabled={deleting===u.id}
+          style={{background:'transparent',border:'none',cursor:'pointer',
+            color:dark?'#475569':'#94a3b8',padding:4,
+            display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
+          onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
+          onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
+          title="Delete user">
+          <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
+            <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden',
+      boxShadow:dark?'none':'0 1px 4px rgba(0,0,0,0.04)'}}>
+
+      {/* Column headers */}
+      <div style={{display:'grid',gridTemplateColumns:COLS,padding:'10px 16px',gap:'0 8px',
+        background:dark?'#0f172a':'#f8fafc',borderBottom:`1px solid ${border}`}}>
+        {['','User','Email','Activity / Users','Target DBs','Status',''].map((h,i)=>(
+          <span key={i} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',
+            letterSpacing:'0.06em',color:textMut}}>{h}</span>
+        ))}
+      </div>
+
+      {/* Empty state */}
+      {users.length===0&&(
+        <div style={{padding:'40px 20px',textAlign:'center',color:textMut,fontSize:13}}>
+          No users yet. Click "Add User" to create the first account.
+        </div>
+      )}
+
+      {/* Client admin groups with their sub-users */}
+      {clientAdmins.map((ca, ci) => (
+        <ClientAdminRow key={ca.id} ca={ca}
+          isLastInList={ci===clientAdmins.length-1}/>
+      ))}
+
+      {/* Direct accounts — users created directly by superadmin */}
+      {directUsers.length>0&&(
+        <>
+          {clientAdmins.length>0&&(
+            <div style={{padding:'7px 16px',background:dark?'#0f172a':'#f8fafc',
+              borderTop:`1px solid ${border}`,borderBottom:`1px solid ${border}`,
+              display:'flex',alignItems:'center',gap:10}}>
+              <div style={{flex:1,height:1,background:border}}/>
+              <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',
+                letterSpacing:'0.07em',color:textMut,whiteSpace:'nowrap',flexShrink:0}}>
+                Direct Accounts
+              </span>
+              <div style={{flex:1,height:1,background:border}}/>
+            </div>
+          )}
+          {directUsers.map((u,ui)=>(
+            <EndUserRow key={u.id} u={u} isChild={false}
+              isLast={ui===directUsers.length-1}/>
+          ))}
+        </>
+      )}
     </div>
   );
 }
+
+// ── UserDetailPage — full-page user record ────────────────────────────────────
+// Replaces the side panel. Mounted at page='userDetail'.
+// key={user.email} in the parent forces a fresh mount per user.
+function UserDetailPage({ user, dark, authToken, onBack }) {
+  const [tab,setTab]           = React.useState('overview');
+  const [history,setHistory]   = React.useState([]);
+  const [errors,setErrors]     = React.useState([]);
+  const [feedback,setFeedback] = React.useState([]);
+  const [loadingH,setLoadingH] = React.useState(false);
+  const [loadingE,setLoadingE] = React.useState(false);
+  const [loadingF,setLoadingF] = React.useState(false);
+  const [limitVal,setLimitVal] = React.useState(user?.limit||0);
+  const [savedLimit,setSavedLimit]   = React.useState(user?.limit||0);
+  const [updatingLimit,setUpdatingLimit] = React.useState(false);
+  const [actPage,setActPage]   = React.useState(1);
+  const ACT_PER_PAGE = 25;
+
+  const bg=dark?'#0a0f1a':'#f4f6fa', cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
+  const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
+  const isClientAdmin = user?.role==='clientadmin';
+  const roleLabel = ROLE_LABELS[user?.role]||user?.role||'—';
+
+  // Fetch history — used by both overview (first 5) and activity (paginated)
+  React.useEffect(()=>{
+    if(!user||!authToken||(tab!=='overview'&&tab!=='activity')) return;
+    setLoadingH(true);
+    fetch(`/api/admin/users/${encodeURIComponent(user.email)}/history?limit=100`,
+      {headers:{'Authorization':`Bearer ${authToken}`}})
+      .then(r=>r.json()).then(d=>{ setHistory(d.history||[]); setActPage(1); })
+      .catch(()=>setHistory([]))
+      .finally(()=>setLoadingH(false));
+  },[tab,user,authToken]);
+
+  React.useEffect(()=>{
+    if(tab!=='errors'||!user||!authToken) return;
+    setLoadingE(true);
+    fetch(`/api/admin/users/${encodeURIComponent(user.email)}/errors?limit=50`,
+      {headers:{'Authorization':`Bearer ${authToken}`}})
+      .then(r=>r.json()).then(d=>setErrors(d.errors||[])).catch(()=>setErrors([]))
+      .finally(()=>setLoadingE(false));
+  },[tab,user,authToken]);
+
+  React.useEffect(()=>{
+    if(tab!=='feedback'||!user||!authToken) return;
+    setLoadingF(true);
+    fetch(`/api/admin/users/${encodeURIComponent(user.email)}/feedback?limit=100`,
+      {headers:{'Authorization':`Bearer ${authToken}`}})
+      .then(r=>r.json()).then(d=>setFeedback(d.feedback||[])).catch(()=>setFeedback([]))
+      .finally(()=>setLoadingF(false));
+  },[tab,user,authToken]);
+
+  const limitChanged = limitVal !== savedLimit;
+  const adjustLimit = (d)=>{ if(!updatingLimit) setLimitVal(v=>Math.max(0,v+d)); };
+  const applyLimit  = async()=>{
+    if(!limitChanged||updatingLimit) return;
+    setUpdatingLimit(true);
+    try {
+      const r = await fetch(`/api/admin/users/${encodeURIComponent(user.email)}`,{
+        method:'PUT', headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`},
+        body:JSON.stringify({searches_limit:limitVal}),
+      });
+      if(r.ok) setSavedLimit(limitVal); else setLimitVal(savedLimit);
+    } catch(_){ setLimitVal(savedLimit); }
+    setUpdatingLimit(false);
+  };
+
+  const fmtTime=(iso)=>{
+    if(!iso||iso==='—') return '—';
+    try{
+      const d=new Date(iso);
+      return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+        +' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    }catch(_){return iso;}
+  };
+  const fmtDur=(m)=>{ if(!m||m===0) return '0 min'; if(m<60) return `${m} min`; const h=Math.floor(m/60),r=m%60; return r?`${h}h ${r}m`:`${h}h`; };
+
+  const scCfg={active:{bg:dark?'#14532d':'#dcfce7',text:dark?'#4ade80':'#15803d'},locked:{bg:dark?'#450a0a':'#fee2e2',text:dark?'#f87171':'#b91c1c'},invited:{bg:dark?'#1e3a5f':'#dbeafe',text:dark?'#60a5fa':'#1e40af'}};
+  const sc=scCfg[user?.status]||scCfg.active;
+
+  const tabStyle=(id)=>({padding:'8px 16px',borderRadius:6,cursor:'pointer',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,border:'none',background:tab===id?(dark?'#1e293b':'#ffffff'):'transparent',color:tab===id?textPri:textMut,boxShadow:tab===id?(dark?'none':'0 1px 3px rgba(0,0,0,0.08)'):'none'});
+
+  // ── Overview ─────────────────────────────────────────────────────────────
+  const OverviewTab = ()=>{
+    const pct = user.limit>0 ? user.used/user.limit : 0;
+    return (
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{display:'flex',gap:12}}>
+          {/* Searches today — interactive via the sticky card, shown here for context */}
+          <div style={{flex:1,background:cardBg,border:`1px solid ${limitChanged?'#bfdbfe':border}`,borderRadius:10,padding:'16px 20px',transition:'border-color 0.15s'}}>
+            <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:textMut,marginBottom:8}}>Searches Today</div>
+            <div style={{fontSize:24,fontWeight:700,color:pct>=1?'#dc2626':pct>=0.8?'#d97706':textPri,marginBottom:6}}>{user.used} <span style={{fontSize:16,color:textSec}}>/ {limitVal}</span></div>
+            <div style={{height:5,borderRadius:3,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
+              <div style={{width:`${Math.min(100,pct*100)}%`,height:'100%',borderRadius:3,background:pct>=1?'#dc2626':pct>=0.8?'#d97706':'#1855d4'}}/>
+            </div>
+          </div>
+          {[
+            ['Last Search', user.last&&user.last!=='—'?user.last:'Never', 'Date'],
+            ['Last Login', user.last_login?fmtTime(user.last_login):'—', 'Session'],
+            ['Time in App', fmtDur(user.total_time_spent_minutes||0), 'While tab active'],
+          ].map(([label,value,sub])=>(
+            <div key={label} style={{flex:1,background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px'}}>
+              <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:textMut,marginBottom:8}}>{label}</div>
+              <div style={{fontSize:20,fontWeight:700,color:textPri,marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{value}</div>
+              <div style={{fontSize:11.5,color:textSec}}>{sub}</div>
+            </div>
+          ))}
+        </div>
+        {/* Recent activity preview */}
+        <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden'}}>
+          <div style={{padding:'14px 18px',borderBottom:`1px solid ${border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:13,fontWeight:700,color:textPri}}>Recent Activity</span>
+            {history.length>5&&<button onClick={()=>setTab('activity')} style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:dark?'#60a5fa':'#1855d4',fontWeight:600}}>View all {history.length} →</button>}
+          </div>
+          {loadingH?<div style={{padding:'20px',color:textMut,fontSize:13}}>Loading…</div>
+          :history.length===0?<div style={{padding:'20px',color:textMut,fontSize:13}}>No searches recorded yet.</div>:(
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+              <thead><tr style={{background:dark?'#0f172a':'#f8fafc'}}>
+                {['Time','Source Part','Flow','Top Match','Score'].map(h=>(
+                  <th key={h} style={{padding:'8px 16px',textAlign:'left',fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,borderBottom:`1px solid ${border}`,whiteSpace:'nowrap'}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {history.slice(0,5).map((r,i)=>(
+                  <tr key={i} style={{borderBottom:i<4?`1px solid ${border}`:'none'}}>
+                    <td style={{padding:'9px 16px',color:textSec,whiteSpace:'nowrap',fontSize:12}}>{fmtTime(r.timestamp)}</td>
+                    <td style={{padding:'9px 16px',fontFamily:'IBM Plex Mono, monospace',color:textPri,fontSize:11.5,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.src_part||'—'}</td>
+                    <td style={{padding:'9px 16px',color:textSec,fontSize:12,whiteSpace:'nowrap'}}>{`${r.source_mfr||'?'} → ${(r.target_mfrs||[]).join(', ')||'?'}`}</td>
+                    <td style={{padding:'9px 16px',fontFamily:'IBM Plex Mono, monospace',color:dark?'#60a5fa':'#1855d4',fontSize:11.5}}>{r.top_match||'—'}</td>
+                    <td style={{padding:'9px 16px',fontWeight:600,color:parseFloat(r.top_score)>=0.85?(dark?'#4ade80':'#15803d'):parseFloat(r.top_score)>=0.6?(dark?'#fbbf24':'#d97706'):(dark?'#f87171':'#b91c1c')}}>{r.top_score?`${Math.round(parseFloat(r.top_score)*100)}%`:'—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Activity (paginated) ──────────────────────────────────────────────────
+  const ActivityTab = ()=>{
+    const total = history.length;
+    const pages = Math.max(1,Math.ceil(total/ACT_PER_PAGE));
+    const rows  = history.slice((actPage-1)*ACT_PER_PAGE, actPage*ACT_PER_PAGE);
+    if(loadingH) return <div style={{padding:'40px',textAlign:'center',color:textMut}}>Loading activity…</div>;
+    if(!total)   return <div style={{padding:'40px',textAlign:'center',color:textMut}}>No searches recorded yet.</div>;
+    return(
+      <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden'}}>
+        <div style={{padding:'12px 18px',borderBottom:`1px solid ${border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontSize:13,fontWeight:700,color:textPri}}>{total} searches total</span>
+          {pages>1&&<div style={{display:'flex',alignItems:'center',gap:8}}>
+            <button onClick={()=>setActPage(p=>Math.max(1,p-1))} disabled={actPage===1} style={{background:'none',border:`1px solid ${border}`,borderRadius:5,padding:'4px 10px',cursor:actPage===1?'default':'pointer',color:actPage===1?textMut:textPri,fontSize:12}}>←</button>
+            <span style={{fontSize:12,color:textSec}}>{actPage} / {pages}</span>
+            <button onClick={()=>setActPage(p=>Math.min(pages,p+1))} disabled={actPage===pages} style={{background:'none',border:`1px solid ${border}`,borderRadius:5,padding:'4px 10px',cursor:actPage===pages?'default':'pointer',color:actPage===pages?textMut:textPri,fontSize:12}}>→</button>
+          </div>}
+        </div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+          <thead><tr style={{background:dark?'#0f172a':'#f8fafc'}}>
+            {['Time','Source Part','Flow','Top Match','Results','Score','Elapsed'].map(h=>(
+              <th key={h} style={{padding:'8px 14px',textAlign:'left',fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,borderBottom:`1px solid ${border}`,whiteSpace:'nowrap'}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {rows.map((r,i)=>{
+              const score=r.top_score?`${Math.round(parseFloat(r.top_score)*100)}%`:'—';
+              return(
+                <tr key={i} style={{borderBottom:i<rows.length-1?`1px solid ${border}`:'none',background:i%2===0?'transparent':(dark?'rgba(255,255,255,0.02)':'rgba(0,0,0,0.01)')}}>
+                  <td style={{padding:'9px 14px',color:textSec,whiteSpace:'nowrap',fontSize:12}}>{fmtTime(r.timestamp)}</td>
+                  <td style={{padding:'9px 14px',fontFamily:'IBM Plex Mono, monospace',color:textPri,fontSize:11.5,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.src_part||'—'}</td>
+                  <td style={{padding:'9px 14px',color:textSec,fontSize:12,whiteSpace:'nowrap'}}>{`${r.source_mfr||'?'} → ${(r.target_mfrs||[]).join(', ')||'?'}`}</td>
+                  <td style={{padding:'9px 14px',fontFamily:'IBM Plex Mono, monospace',color:dark?'#60a5fa':'#1855d4',fontSize:11.5}}>{r.top_match||'—'}</td>
+                  <td style={{padding:'9px 14px',color:textPri,textAlign:'center'}}>{r.result_count??'—'}</td>
+                  <td style={{padding:'9px 14px',fontWeight:600,whiteSpace:'nowrap',color:parseFloat(r.top_score)>=0.85?(dark?'#4ade80':'#15803d'):parseFloat(r.top_score)>=0.6?(dark?'#fbbf24':'#d97706'):(dark?'#f87171':'#b91c1c')}}>{score}</td>
+                  <td style={{padding:'9px 14px',color:textSec}}>{r.elapsed_s?`${parseFloat(r.elapsed_s).toFixed(1)}s`:'—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  // ── Account ───────────────────────────────────────────────────────────────
+  const AccountTab = ()=>(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        {[['Role',roleLabel],['Client',user.client||'—'],['Status',user.status||'—'],['Direction',user.dir==='bidirectional'?'⇄ Bidirectional':'→ Source only'],['Daily Limit',`${user.limit} searches / day`],['Created',fmtTime(user.created_at)],['Last Login',fmtTime(user.last_login)],['Last Search',user.last||'—']].map(([k,v])=>(
+          <div key={k} style={{background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:7,padding:'10px 14px'}}>
+            <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,marginBottom:4}}>{k}</div>
+            <div style={{fontSize:13,fontWeight:500,color:textPri}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:7,padding:'12px 14px'}}>
+        <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,marginBottom:8}}>Allowed Sources</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{(user.sources||[]).map(s=><span key={s} style={{fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:4,background:dark?'#1e3a5f':'#dbeafe',color:dark?'#60a5fa':'#1e40af',textTransform:'capitalize'}}>{s}</span>)}</div>
+      </div>
+      <div style={{background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:7,padding:'12px 14px'}}>
+        <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,marginBottom:8}}>Target Databases</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{(user.dbs||[]).map(d=><span key={d} style={{fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:4,background:dark?'#14532d':'#dcfce7',color:dark?'#4ade80':'#15803d',textTransform:'capitalize'}}>{d}</span>)}</div>
+      </div>
+    </div>
+  );
+
+  // ── Feedback ──────────────────────────────────────────────────────────────
+  const FeedbackTab = ()=>{
+    if(loadingF) return <div style={{padding:'40px',textAlign:'center',color:textMut}}>Loading feedback…</div>;
+    if(!feedback.length) return <div style={{padding:'40px',textAlign:'center',color:textMut}}>No feedback recorded yet.</div>;
+    return(
+      <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+          <thead><tr style={{background:dark?'#0f172a':'#f8fafc'}}>{['Time','Source Part','Candidate','Reaction'].map(h=><th key={h} style={{padding:'8px 14px',textAlign:'left',fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,borderBottom:`1px solid ${border}`,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <tbody>{feedback.map((f,i)=>{const g=f.is_good_match===true||f.is_good_match==='true'; return(<tr key={i} style={{borderBottom:i<feedback.length-1?`1px solid ${border}`:'none'}}><td style={{padding:'9px 14px',color:textSec,whiteSpace:'nowrap'}}>{fmtTime(f.timestamp)}</td><td style={{padding:'9px 14px',fontFamily:'IBM Plex Mono, monospace',color:textPri,fontSize:11.5}}>{f.source_part_number||'—'}</td><td style={{padding:'9px 14px',fontFamily:'IBM Plex Mono, monospace',color:dark?'#60a5fa':'#1855d4',fontSize:11.5}}>{f.candidate_part_number||'—'}</td><td style={{padding:'9px 14px'}}><span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,padding:'2px 8px',borderRadius:4,background:g?(dark?'#14532d':'#dcfce7'):(dark?'#450a0a':'#fee2e2'),color:g?(dark?'#4ade80':'#15803d'):(dark?'#f87171':'#b91c1c')}}>{g?'👍 Good':'👎 Poor'}</span></td></tr>);})}</tbody>
+        </table>
+      </div>
+    );
+  };
+
+  // ── Errors ────────────────────────────────────────────────────────────────
+  const ErrorsTab = ()=>{
+    if(loadingE) return <div style={{padding:'40px',textAlign:'center',color:textMut}}>Loading errors…</div>;
+    if(!errors.length) return <div style={{padding:'40px',textAlign:'center',color:dark?'#4ade80':'#15803d',fontSize:13}}>No errors recorded. All good.</div>;
+    return(
+      <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+          <thead><tr style={{background:dark?'#0f172a':'#f8fafc'}}>{['Time','Endpoint','Status','Error'].map(h=><th key={h} style={{padding:'8px 14px',textAlign:'left',fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,borderBottom:`1px solid ${border}`,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <tbody>{errors.map((e,i)=>(<tr key={i} style={{borderBottom:i<errors.length-1?`1px solid ${border}`:'none'}}><td style={{padding:'9px 14px',color:textSec,whiteSpace:'nowrap'}}>{fmtTime(e.timestamp)}</td><td style={{padding:'9px 14px',fontFamily:'IBM Plex Mono, monospace',fontSize:11.5,color:textPri}}>{e.endpoint||'—'}</td><td style={{padding:'9px 14px'}}><span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:4,background:parseInt(e.status_code)>=500?(dark?'#450a0a':'#fee2e2'):(dark?'#431407':'#fff7ed'),color:parseInt(e.status_code)>=500?(dark?'#f87171':'#b91c1c'):(dark?'#fb923c':'#c2410c')}}>{e.status_code}</span></td><td style={{padding:'9px 14px',color:textSec,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={e.error_msg}>{e.error_msg||'—'}</td></tr>))}</tbody>
+        </table>
+      </div>
+    );
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div style={{flex:1,background:bg,overflowY:'auto',padding:'24px 28px',minHeight:0}}>
+
+      {/* Back + breadcrumb */}
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
+        <button onClick={onBack} style={{display:'flex',alignItems:'center',gap:5,background:'none',border:'none',cursor:'pointer',color:dark?'#60a5fa':'#1855d4',fontWeight:600,fontSize:13,padding:'4px 0',fontFamily:'IBM Plex Sans, sans-serif'}}
+          onMouseEnter={e=>e.currentTarget.style.opacity='0.7'}
+          onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
+          <svg width={14} height={14} viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          Admin Console
+        </button>
+        <span style={{color:textMut,fontSize:13}}>›</span>
+        <span style={{fontSize:13,color:textSec,fontWeight:500}}>{user?.name||user?.email||'—'}</span>
+      </div>
+
+      {/* Page header */}
+      <div style={{display:'flex',alignItems:'flex-start',gap:14,marginBottom:24}}>
+        <div style={{width:52,height:52,borderRadius:isClientAdmin?10:'50%',flexShrink:0,
+          background:isClientAdmin?'linear-gradient(135deg,#7c3aed,#a78bfa)':'linear-gradient(135deg,#1855d4,#3b82f6)',
+          display:'flex',alignItems:'center',justifyContent:'center',
+          fontSize:17,fontWeight:700,color:'white',letterSpacing:'0.04em'}}>
+          {(user?.name||'?').split(' ').map(p=>p[0]).join('').toUpperCase().slice(0,2)}
+        </div>
+        <div style={{flex:1}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:4}}>
+            <h1 style={{margin:0,fontSize:20,fontWeight:700,color:textPri,letterSpacing:'-0.02em'}}>{user?.name}</h1>
+            <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,background:sc.bg,color:sc.text,textTransform:'capitalize'}}>{user?.status}</span>
+            <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,
+              background:isClientAdmin?(dark?'#2d1b69':'#ede9fe'):(dark?'#1e3a5f':'#dbeafe'),
+              color:isClientAdmin?(dark?'#a78bfa':'#7c3aed'):(dark?'#60a5fa':'#1e40af')}}>
+              {roleLabel}
+            </span>
+          </div>
+          <div style={{fontSize:13,color:textSec}}>{user?.email}</div>
+          {user?.client&&<div style={{fontSize:12,color:textMut,marginTop:2}}>{user.client}</div>}
+        </div>
+      </div>
+
+      {/* Two-column: main tabs + sticky identity card */}
+      <div style={{display:'flex',gap:20,alignItems:'flex-start'}}>
+
+        {/* Main area */}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:'flex',gap:4,background:dark?'#0f172a':'#f1f5f9',padding:4,borderRadius:8,width:'fit-content',marginBottom:18,border:`1px solid ${border}`}}>
+            {['overview','activity','account','feedback','errors'].map(t=>(
+              <button key={t} style={tabStyle(t)} onClick={()=>setTab(t)}>
+                {t.charAt(0).toUpperCase()+t.slice(1)}
+                {t==='errors'&&errors.length>0&&<span style={{marginLeft:5,fontSize:10,fontWeight:700,padding:'1px 5px',borderRadius:10,background:'#dc2626',color:'white'}}>{errors.length}</span>}
+              </button>
+            ))}
+          </div>
+          {tab==='overview' &&<OverviewTab/>}
+          {tab==='activity' &&<ActivityTab/>}
+          {tab==='account'  &&<AccountTab/>}
+          {tab==='feedback' &&<FeedbackTab/>}
+          {tab==='errors'   &&<ErrorsTab/>}
+        </div>
+
+        {/* Sticky identity card */}
+        <div style={{width:230,flexShrink:0,position:'sticky',top:0}}>
+          <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 14px',display:'flex',flexDirection:'column',gap:12}}>
+            {/* Mini avatar + name */}
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:34,height:34,borderRadius:isClientAdmin?7:'50%',flexShrink:0,
+                background:isClientAdmin?'linear-gradient(135deg,#7c3aed,#a78bfa)':'linear-gradient(135deg,#1855d4,#3b82f6)',
+                display:'flex',alignItems:'center',justifyContent:'center',
+                fontSize:11,fontWeight:700,color:'white'}}>
+                {(user?.name||'?').split(' ').map(p=>p[0]).join('').toUpperCase().slice(0,2)}
+              </div>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:textPri,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user?.name}</div>
+                <div style={{fontSize:11,color:textMut}}>{user?.client||roleLabel}</div>
+              </div>
+            </div>
+            <div style={{height:1,background:border}}/>
+            {/* Quick stats */}
+            {[['Searches today',`${user.used} / ${limitVal}`],['Last active',user.last&&user.last!=='—'?user.last:'Never'],['Time in app',fmtDur(user.total_time_spent_minutes||0)]].map(([k,v])=>(
+              <div key={k}>
+                <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:textMut,marginBottom:2}}>{k}</div>
+                <div style={{fontSize:12.5,fontWeight:600,color:textPri}}>{v}</div>
+              </div>
+            ))}
+            <div style={{height:1,background:border}}/>
+            {/* Limit adjuster */}
+            <div>
+              <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:textMut,marginBottom:8}}>Daily Search Limit</div>
+              <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:6}}>
+                <button onClick={()=>adjustLimit(-1)} disabled={updatingLimit||limitVal<=0} style={{width:24,height:24,border:`1px solid ${border}`,borderRadius:4,background:'transparent',cursor:(updatingLimit||limitVal<=0)?'default':'pointer',color:textMut,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>−</button>
+                <span style={{flex:1,textAlign:'center',fontSize:16,fontWeight:700,color:limitChanged?(dark?'#60a5fa':'#1855d4'):textPri,fontVariantNumeric:'tabular-nums'}}>{limitVal}</span>
+                <button onClick={()=>adjustLimit(1)} disabled={updatingLimit} style={{width:24,height:24,border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,borderRadius:4,background:dark?'#0f1f3d':'#eff6ff',cursor:updatingLimit?'default':'pointer',color:dark?'#60a5fa':'#1a3570',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>+</button>
+              </div>
+              <button onClick={applyLimit} disabled={!limitChanged||updatingLimit} style={{width:'100%',padding:'6px',borderRadius:5,border:'none',background:limitChanged&&!updatingLimit?'#1a3570':(dark?'#1e293b':'#e2e8f0'),color:limitChanged&&!updatingLimit?'white':(dark?'#475569':'#94a3b8'),cursor:limitChanged&&!updatingLimit?'pointer':'default',fontFamily:'IBM Plex Sans, sans-serif',fontSize:12,fontWeight:600,transition:'all 0.15s'}}>
+                {updatingLimit?'Saving…':'Apply'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 
 function UserDetailPanel({ user, dark, authToken, onClose, onLimitChange }) {
   const [tab,setTab]=React.useState('activity');
@@ -2711,11 +3558,10 @@ function DatabaseTab({ dark, authToken, mfrs, onMfrsUpdate }) {
   );
 }
 
-function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user }) {
+function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user, onNavigateToUser }) {
   const [tab,setTab]=React.useState('users');
   const [showModal,setShowModal]=React.useState(false);
   const [users,setUsers]=React.useState([]);
-  const [selectedUser,setSelectedUser]=React.useState(null);
   const bg=dark?'#0a0f1a':'#f4f6fa', cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
 
@@ -2732,12 +3578,15 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
       const data=await resp.json();
       const mapped=(data.users||[]).map(u=>({
         id:u.userId, name:u.name||u.userId, email:u.userId,
+        role:u.role||'enduser',
         used:u.searches_used||0, limit:u.searches_limit||0,
         sources:(u.allowed_sources||[]), dbs:(u.allowed_targets||[]),
         client:u.client||'', dir:u.direction||'source_only',
         status:u.status||'active', last:u.last_search_date||'—',
         last_login:u.last_login||'', created_at:u.created_at||'',
         total_time_spent_minutes:u.total_time_spent_minutes||0,
+        created_by:u.created_by||u.admin_email||'',
+        user_creation_limit:u.user_creation_limit??null,
       }));
       setUsers(mapped);
     } catch(_){}
@@ -2825,19 +3674,14 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
       </div>
 
       {/* ── Tab content ── */}
-      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={setSelectedUser}/>}
+      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={onNavigateToUser}/>}
       {tab==='analytics'&&(isSuperAdmin
         ? <AnalyticsTab dark={dark} authToken={authToken}/>
         : <ClientAnalyticsTab dark={dark} authToken={authToken}/>
       )}
       {tab==='database'&&isSuperAdmin&&<DatabaseTab dark={dark} authToken={authToken} mfrs={mfrs} onMfrsUpdate={onMfrsUpdate}/>}
       {showModal&&<AddUserModal onClose={()=>setShowModal(false)} dark={dark} authToken={authToken} onCreated={fetchUsers} mfrs={mfrs} mfrLabel={mfrLabel} creatorRole={user?.role||'superadmin'} creatorUser={user}/>}
-      {selectedUser&&<UserDetailPanel user={selectedUser} dark={dark} authToken={authToken} onClose={()=>setSelectedUser(null)}
-        onLimitChange={(newLimit)=>{
-          setSelectedUser(u=>({...u, limit:newLimit}));
-          setUsers(us=>us.map(u=>u.email===selectedUser.email?{...u,limit:newLimit}:u));
-        }}
-      />}
+
     </div>
   );
 }
@@ -3083,80 +3927,216 @@ function WeightsPage({ dark, t2Raw, t3Raw, setT2Raw, setT3Raw }) {
         <Section title="Secondary Specs" subtitle="T3 parameters — weighted 30% of final score. Operational and environmental compatibility." badge="T3"
           params={T3_PARAMS} raw={t3Raw} setRaw={setT3Raw}/>
 
-        {/* ── Score Calculation Explanation ── */}
+        {/* ── Score Calculation Explanation — redesigned ── */}
         <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'20px 24px',marginBottom:16}}>
           <div style={{fontSize:14,fontWeight:700,color:textPri,marginBottom:4}}>How the Score is Calculated</div>
           <div style={{fontSize:11.5,color:textSec,marginBottom:20,lineHeight:1.6}}>
-            Every candidate encoder is scored in two tiers. T1 hard stops run first — any mismatch instantly disqualifies the candidate. T2 and T3 are then scored and combined into a final match percentage.
+            Scoring runs in three tiers. T1 hard stops run first — any mismatch instantly disqualifies the candidate (score = 0). Candidates that pass T1 are then scored across T2 and T3 fields and combined into a final match percentage.
           </div>
 
-          {/* Final formula */}
-          <div style={{background:dark?'#0f1f3d':'#eff6ff',border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,borderRadius:8,padding:'14px 18px',marginBottom:16,fontFamily:'IBM Plex Mono, monospace'}}>
-            <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:dark?'#60a5fa':'#1a3570',marginBottom:8}}>Final Score Formula</div>
+          {/* ── Formula ── */}
+          <div style={{background:dark?'#0f1f3d':'#eff6ff',border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,borderRadius:8,padding:'14px 18px',marginBottom:24,fontFamily:'IBM Plex Mono, monospace'}}>
+            <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:dark?'#60a5fa':'#1a3570',marginBottom:8}}>Final Score Formula</div>
             <div style={{fontSize:13.5,color:textPri,fontWeight:600}}>
               Final Score = <span style={{color:dark?'#60a5fa':'#1855d4'}}>0.70</span> × T2_score + <span style={{color:dark?'#4ade80':'#15803d'}}>0.30</span> × T3_score
             </div>
             <div style={{fontSize:11,color:textSec,marginTop:6}}>
-              Tier weights are fixed. Field weights within each tier are adjustable above.
+              Tier weights (70/30) are fixed. Field weights within each tier are adjustable using the sliders above.
             </div>
           </div>
 
-          {/* T2 breakdown */}
-          <div style={{marginBottom:16}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-              <span style={{fontSize:12.5,fontWeight:700,color:textPri}}>T2 · Physical Match</span>
-              <span style={{fontSize:10,fontWeight:700,background:dark?'#1e3a5f':'#dbeafe',color:dark?'#60a5fa':'#1e40af',padding:'1px 6px',borderRadius:3}}>70% of final</span>
+          {/* ── T1 — Hard Stops ── */}
+          <div style={{marginBottom:24}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+              <span style={{fontSize:13,fontWeight:700,color:textPri}}>T1 · Hard Stops</span>
+              <span style={{fontSize:10,fontWeight:700,background:dark?'#3b1f1f':'#fef2f2',color:dark?'#fca5a5':'#b91c1c',padding:'2px 6px',borderRadius:3,letterSpacing:'0.05em'}}>Instant disqualification</span>
             </div>
-            <div style={{fontSize:11.5,color:textSec,marginBottom:8,lineHeight:1.6}}>
-              T2_score = Σ (normalised_field_weight × field_score) across all T2 fields.<br/>
-              Scoring is <strong style={{color:textPri}}>directional</strong> — a candidate that exceeds the source on IP rating or speed is not penalised; only shortfalls are penalised.
+            <div style={{fontSize:11.5,color:textSec,marginBottom:10,lineHeight:1.6}}>
+              These checks run before any scoring. A single T1 failure sets the candidate's score to 0 and removes it from results, regardless of how well it matches on other fields. There is no weight setting for T1 — the gate is absolute.
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-              {T2_PARAMS.map(p=>{
-                const total=Object.values(t2Raw).reduce((s,v)=>s+v,0);
-                const pct=total>0?((t2Raw[p.field]??0)/total*100).toFixed(0):'0';
-                return(
-                  <div key={p.field} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
-                    background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,
-                    borderRadius:5,padding:'6px 10px'}}>
-                    <span style={{fontSize:12,color:textPri}}>{p.label}</span>
-                    <span style={{fontSize:11.5,fontWeight:700,color:dark?'#60a5fa':'#1855d4',fontVariantNumeric:'tabular-nums'}}>{pct}%</span>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {[
+                {
+                  field:'Shaft Type',
+                  rule:'Exact match',
+                  detail:'Solid / hollow-blind / hollow-thru — any cross is a hard stop. A solid-shaft encoder cannot physically replace a hollow-bore mounting.',
+                },
+                {
+                  field:'Bore Diameter (hollow)',
+                  rule:'Within ±1 mm',
+                  detail:'Applies only when both source and candidate are hollow. A mismatch beyond 1 mm means the encoder will not seat correctly on the shaft.',
+                },
+                {
+                  field:'Output Voltage Class',
+                  rule:'No TTL ↔ HTL/Universal cross',
+                  detail:'5 V (TTL) logic driving 24 V circuitry causes immediate signal failure. Push-Pull (Universal) and TTL are treated as incompatible voltage classes.',
+                },
+              ].map(({field,rule,detail})=>(
+                <div key={field} style={{background:dark?'#1a0a0a':'#fff8f8',border:`1px solid ${dark?'#3b1f1f':'#fecaca'}`,borderRadius:7,padding:'10px 14px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                    <span style={{fontSize:12.5,fontWeight:700,color:dark?'#fca5a5':'#b91c1c'}}>{field}</span>
+                    <span style={{fontSize:10.5,fontWeight:600,color:dark?'#f87171':'#dc2626',background:dark?'#3b1f1f':'#fee2e2',padding:'1px 7px',borderRadius:3,whiteSpace:'nowrap'}}>{rule}</span>
                   </div>
-                );
-              })}
+                  <div style={{fontSize:11.5,color:textSec,lineHeight:1.5}}>{detail}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* T3 breakdown */}
-          <div style={{marginBottom:16}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-              <span style={{fontSize:12.5,fontWeight:700,color:textPri}}>T3 · Secondary Specs</span>
-              <span style={{fontSize:10,fontWeight:700,background:dark?'#1a3a1a':'#dcfce7',color:dark?'#4ade80':'#15803d',padding:'1px 6px',borderRadius:3}}>30% of final</span>
+          <div style={{height:1,background:border,marginBottom:24}}/>
+
+          {/* ── T2 — Physical Match ── */}
+          <div style={{marginBottom:24}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+              <span style={{fontSize:13,fontWeight:700,color:textPri}}>T2 · Physical Match</span>
+              <span style={{fontSize:10,fontWeight:700,background:dark?'#1e3a5f':'#dbeafe',color:dark?'#60a5fa':'#1e40af',padding:'2px 6px',borderRadius:3}}>70% of final score</span>
             </div>
-            <div style={{fontSize:11.5,color:textSec,marginBottom:8,lineHeight:1.6}}>
-              T3_score = Σ (normalised_field_weight × field_score) across all T3 fields.<br/>
-              T3 fields are soft preferences — mismatches reduce score but do not disqualify.
+            <div style={{fontSize:11.5,color:textSec,marginBottom:14,lineHeight:1.6}}>
+              T2_score = Σ (normalised field weight × field score). T2 fields fall into two scoring modes:
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-              {T3_PARAMS.map(p=>{
-                const total=Object.values(t3Raw).reduce((s,v)=>s+v,0);
-                const pct=total>0?((t3Raw[p.field]??0)/total*100).toFixed(0):'0';
-                return(
-                  <div key={p.field} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
-                    background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,
-                    borderRadius:5,padding:'6px 10px'}}>
-                    <span style={{fontSize:12,color:textPri}}>{p.label}</span>
-                    <span style={{fontSize:11.5,fontWeight:700,color:dark?'#4ade80':'#15803d',fontVariantNumeric:'tabular-nums'}}>{pct}%</span>
+
+            {/* T2 — Directional */}
+            <div style={{marginBottom:12}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+                <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#60a5fa':'#1855d4'}}>↑ Directional</span>
+                <span style={{fontSize:11,color:textMut}}>— candidate exceeding the source is never penalised</span>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                {[
+                  {label:'IP Rating', note:'Candidate IP ≥ source IP = 100%. Candidate IP < source IP = penalised proportionally. A candidate rated IP67 replacing an IP65 source loses nothing on this field.'},
+                  {label:'PPR Coverage', note:'Recall-based: score = source PPR values the candidate can cover ÷ total source PPR values. Candidate covering all source values = 100%. Missing even one reduces this score.'},
+                  {label:'Connection Type', note:'Directional preference — same canonical type scores highest. Different type is penalised, but unlike T1 it does not disqualify.'},
+                ].map(({label,note})=>(
+                  <div key={label} style={{display:'flex',gap:10,background:dark?'#0f1f3d':'#eff6ff',border:`1px solid ${dark?'#1e3a5f':'#bfdbfe'}`,borderRadius:6,padding:'8px 12px'}}>
+                    <div style={{minWidth:110,fontSize:12,fontWeight:600,color:dark?'#60a5fa':'#1855d4',flexShrink:0}}>{label}</div>
+                    <div style={{fontSize:11.5,color:textSec,lineHeight:1.5}}>{note}</div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            </div>
+
+            {/* T2 — Proximity/Match */}
+            <div style={{marginBottom:14}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+                <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#94a3b8':'#475569'}}>≈ Proximity</span>
+                <span style={{fontSize:11,color:textMut}}>— closest match wins, deviation in either direction is penalised</span>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                {[
+                  {label:'Housing Diameter', note:'Closest diameter to source scores highest. Oversized and undersized are both penalised — housing size directly affects mechanical fit.'},
+                  {label:'Output Circuit', note:'Exact canonical circuit type (TTL RS422, Push-Pull, Open Collector, Sin/Cos) scores 100%. Different circuit type is penalised.'},
+                  {label:'Bore Diameter (solid)', note:'For solid-shaft encoders, closest bore diameter scores highest. No T1 hard stop for solid shafts — mismatch reduces T2 score instead.'},
+                ].map(({label,note})=>(
+                  <div key={label} style={{display:'flex',gap:10,background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:6,padding:'8px 12px'}}>
+                    <div style={{minWidth:110,fontSize:12,fontWeight:600,color:textPri,flexShrink:0}}>{label}</div>
+                    <div style={{fontSize:11.5,color:textSec,lineHeight:1.5}}>{note}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* T2 example */}
+            <div style={{background:dark?'#0a1a2e':'#f0f9ff',border:`1px solid ${dark?'#0e3a5f':'#bae6fd'}`,borderRadius:6,padding:'10px 14px'}}>
+              <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#38bdf8':'#0369a1',marginBottom:6}}>Example · IP Rating (T2)</div>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                {[
+                  {label:'Source', val:'IP 65', note:''},
+                  {label:'Candidate A', val:'IP 67', score:'100%', good:true, note:'Exceeds source — not penalised'},
+                  {label:'Candidate B', val:'IP 65', score:'100%', good:true, note:'Exact match'},
+                  {label:'Candidate C', val:'IP 50', score:'~30%', good:false, note:'Falls short — proportionally penalised'},
+                ].map(({label,val,score,good,note})=>(
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:8,fontSize:12}}>
+                    <span style={{color:textMut,width:90,flexShrink:0}}>{label}</span>
+                    <span style={{fontFamily:'IBM Plex Mono, monospace',color:textPri,fontWeight:600,width:50}}>{val}</span>
+                    {score&&<span style={{fontWeight:700,color:good?(dark?'#4ade80':'#15803d'):(dark?'#f87171':'#dc2626'),width:42}}>{score}</span>}
+                    {note&&<span style={{color:textMut,fontSize:11}}>{note}</span>}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* CPR special note */}
+          <div style={{height:1,background:border,marginBottom:24}}/>
+
+          {/* ── T3 — Secondary Specs ── */}
+          <div style={{marginBottom:20}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+              <span style={{fontSize:13,fontWeight:700,color:textPri}}>T3 · Secondary Specs</span>
+              <span style={{fontSize:10,fontWeight:700,background:dark?'#1a3a1a':'#dcfce7',color:dark?'#4ade80':'#15803d',padding:'2px 6px',borderRadius:3}}>30% of final score</span>
+            </div>
+            <div style={{fontSize:11.5,color:textSec,marginBottom:14,lineHeight:1.6}}>
+              T3_score = Σ (normalised field weight × field score). Mismatches reduce the score but never disqualify. <strong style={{color:textPri}}>Critically: T3 also has directional fields.</strong> A candidate that exceeds the source on a capability field (voltage, shock, load) scores 100% on that field — only shortfalls are penalised.
+            </div>
+
+            {/* T3 — Directional capability */}
+            <div style={{marginBottom:12}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+                <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#4ade80':'#15803d'}}>↑ Directional — capability fields</span>
+                <span style={{fontSize:11,color:textMut}}>— more capacity is never penalised</span>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                {[
+                  {label:'Supply Voltage', note:"Candidate voltage range must cover the source's operating range. Source 10–30 V, Candidate 5–40 V = 100%. Source 10–30 V, Candidate 5–20 V = penalised (upper end not covered)."},
+                  {label:'Shock Resistance', note:'Candidate shock rating ≥ source = 100%. A candidate rated for 600 m/s² replacing a source rated 300 m/s² loses nothing on this field.'},
+                  {label:'Vibration', note:'Same pattern as shock. Candidate rated for equal or greater vibration load = full score.'},
+                  {label:'Shaft Load', note:'Candidate radial/axial load capacity ≥ source capacity = 100%. A candidate rated for 80 N radial replacing a source needing 100 N = penalised.'},
+                  {label:'Max Operating Temp', note:'Candidate max temperature ≥ source max = no penalty. Lower maximum operating temperature = penalised proportionally.'},
+                ].map(({label,note})=>(
+                  <div key={label} style={{display:'flex',gap:10,background:dark?'#0a1f0a':'#f0fdf4',border:`1px solid ${dark?'#14532d':'#bbf7d0'}`,borderRadius:6,padding:'8px 12px'}}>
+                    <div style={{minWidth:110,fontSize:12,fontWeight:600,color:dark?'#4ade80':'#15803d',flexShrink:0}}>{label}</div>
+                    <div style={{fontSize:11.5,color:textSec,lineHeight:1.5}}>{note}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* T3 — Preference match */}
+            <div style={{marginBottom:14}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+                <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#94a3b8':'#475569'}}>≈ Preference match</span>
+                <span style={{fontSize:11,color:textMut}}>— same type scores highest, mismatch is penalised but not blocked</span>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                {[
+                  {label:'Sensing Method', note:'Optical vs magnetic. Mismatch reduces T3 score but a candidate using a different sensing principle is not disqualified — the physical output is identical.'},
+                  {label:'Connector Pins', note:'Same pin count scores highest. Different pin count reduces compatibility score but does not block the result.'},
+                ].map(({label,note})=>(
+                  <div key={label} style={{display:'flex',gap:10,background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:6,padding:'8px 12px'}}>
+                    <div style={{minWidth:110,fontSize:12,fontWeight:600,color:textPri,flexShrink:0}}>{label}</div>
+                    <div style={{fontSize:11.5,color:textSec,lineHeight:1.5}}>{note}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* T3 — Voltage example */}
+            <div style={{background:dark?'#0a1f0a':'#f0fdf4',border:`1px solid ${dark?'#14532d':'#bbf7d0'}`,borderRadius:6,padding:'10px 14px',marginBottom:12}}>
+              <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#4ade80':'#15803d',marginBottom:6}}>Example · Supply Voltage (T3)</div>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                {[
+                  {label:'Source', val:'10–30 V', note:''},
+                  {label:'Candidate A', val:'5–40 V',  score:'100%', good:true,  note:'Range exceeds source — no penalty'},
+                  {label:'Candidate B', val:'10–30 V', score:'100%', good:true,  note:'Exact match'},
+                  {label:'Candidate C', val:'5–20 V',  score:'~55%', good:false, note:'Upper range short — 10 V gap penalised'},
+                  {label:'Candidate D', val:'15–30 V', score:'~70%', good:false, note:'Lower range short — source min not covered'},
+                ].map(({label,val,score,good,note})=>(
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:8,fontSize:12}}>
+                    <span style={{color:textMut,width:90,flexShrink:0}}>{label}</span>
+                    <span style={{fontFamily:'IBM Plex Mono, monospace',color:textPri,fontWeight:600,width:70}}>{val}</span>
+                    {score&&<span style={{fontWeight:700,color:good?(dark?'#4ade80':'#15803d'):(dark?'#f87171':'#dc2626'),width:42}}>{score}</span>}
+                    {note&&<span style={{color:textMut,fontSize:11}}>{note}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── PPR Coverage special note ── */}
           <div style={{background:dark?'#2d1f0a':'#fffbeb',border:`1px solid ${dark?'#78350f':'#fcd34d'}`,borderRadius:6,padding:'10px 14px'}}>
+            <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#fbbf24':'#d97706',marginBottom:5}}>PPR Coverage — special scoring</div>
             <div style={{fontSize:11.5,color:dark?'#fbbf24':'#92400e',lineHeight:1.6}}>
-              <strong>PPR Coverage scoring:</strong> For fixed encoders, score = number of source PPR values covered by candidate ÷ total source PPR values (recall). For programmable candidates, score = fraction of source PPR values that fall within the candidate's programmable range.
+              <strong>Fixed encoders:</strong> score = source PPR values covered by candidate ÷ total source PPR values (recall). A candidate offering 1000 and 2048 PPR against a source needing 1000, 2048, and 4096 PPR scores 67% (2 of 3 covered).<br/>
+              <strong>Programmable candidates:</strong> score = fraction of source PPR values that fall within the candidate's programmable range. A candidate programmable from 1–65,536 PPR covers any source list entirely = 100%.
             </div>
           </div>
         </div>
@@ -3185,6 +4165,7 @@ function App() {
   const setTweak=(id,val)=>setTweaksState(t=>({...t,[id]:val}));
   const [page,setPage]=React.useState('login');
   const [loggedInRole,setLoggedInRole]=React.useState('enduser');
+  const [selectedDetailUser,setSelectedDetailUser]=React.useState(null);
   const [authToken,setAuthToken]=React.useState(null);
   const [liveUser,setLiveUser]=React.useState(null);
   const [sessionMsg,setSessionMsg]=React.useState('');
@@ -3239,6 +4220,12 @@ function App() {
     if(msg) setSessionMsg(msg);
   },[]);
 
+  // Navigate to full-page user detail view
+  const handleNavigateToUser = React.useCallback((user) => {
+    setSelectedDetailUser(user);
+    setPage('userDetail');
+  }, []);
+
   // Auto-logout after 10 minutes of inactivity
   useIdleTimeout(React.useCallback(()=>handleLogout('You were logged out due to inactivity.'),[handleLogout]));
   // Single-session guard — polls /api/auth/me every 30s
@@ -3255,11 +4242,11 @@ function App() {
       setAuthToken(token);
       setLiveUser(userData);
       setLoggedInRole(userData.role);
-      setPage(userData.role==='superadmin'?'admin':'search');
+      setPage('selector');
     } else {
       setLoggedInRole(role);
-      setPage(role==='clientadmin'||role==='superadmin'?'admin':'search');
       setTweak('userRole',role);
+      setPage('selector');
     }
   };
 
@@ -3277,7 +4264,7 @@ function App() {
   },[authToken]);
   const appBg=dark?'#0a0f1a':'#f4f6fa';
 
-  if (page==='login') return (
+  if (page==='login'||page==='selector') return (
     <>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}`}</style>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
@@ -3288,7 +4275,10 @@ function App() {
           <button onClick={()=>setSessionMsg('')} style={{marginLeft:8,background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:18,lineHeight:1,padding:0}}>×</button>
         </div>
       )}
-      <LoginPage onLogin={handleLogin} dark={dark}/>
+      {page==='login'
+        ? <LoginPage onLogin={handleLogin} dark={dark}/>
+        : <ProductSelectorPage dark={dark} user={baseUser} onSelect={(dest)=>setPage(dest)}/>
+      }
       <TweaksPanel tweaks={tweaks} setTweak={setTweak}>
         <TweakSection title="Appearance"><TweakRadio id="colorMode" label="Mode" options={[{value:'light',label:'Light'},{value:'dark',label:'Dark'}]} tweaks={tweaks} setTweak={setTweak}/></TweakSection>
       </TweaksPanel>
@@ -3304,7 +4294,7 @@ function App() {
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0}}>
           <div style={{height:44,flexShrink:0,background:dark?'#0f172a':'#ffffff',borderBottom:`1px solid ${dark?'#1e293b':'#e2e8f0'}`,display:'flex',alignItems:'center',padding:'0 20px',gap:8}}>
             <span style={{fontSize:12.5,fontWeight:600,color:dark?'#94a3b8':'#64748b'}}>
-              {page==='search'&&'Cross-Reference Search'}{page==='history'&&'Search History'}{page==='admin'&&'Admin Console · AQB Solutions'}{page==='weights'&&'Scoring Weights'}
+              {page==='selector'&&'Products'}{page==='search'&&'Cross-Reference Search'}{page==='history'&&'Search History'}{page==='admin'&&'Admin Console · AQB Solutions'}{page==='weights'&&'Scoring Weights'}{page==='userDetail'&&`User Detail · ${selectedDetailUser?.name||selectedDetailUser?.email||''}`}
             </span>
             <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:12}}>
               {/* One-click dark/light mode toggle */}
@@ -3351,7 +4341,8 @@ function App() {
             />}
             {page==='history'&&<HistoryPage user={baseUser} onRerun={()=>setPage('search')} dark={dark} authToken={authToken}/>}
             {page==='weights'&&<WeightsPage dark={dark} t2Raw={t2Raw} t3Raw={t3Raw} setT2Raw={setT2Raw} setT3Raw={setT3Raw}/>}
-            {page==='admin'&&<AdminPage dark={dark} authToken={authToken} mfrs={mfrs} mfrIds={mfrIds} mfrLabel={mfrLabel} onMfrsUpdate={setMfrs} user={baseUser}/>}
+            {page==='admin'&&<AdminPage dark={dark} authToken={authToken} mfrs={mfrs} mfrIds={mfrIds} mfrLabel={mfrLabel} onMfrsUpdate={setMfrs} user={baseUser} onNavigateToUser={handleNavigateToUser}/>}
+            {page==='userDetail'&&<UserDetailPage key={selectedDetailUser?.email} user={selectedDetailUser} dark={dark} authToken={authToken} onBack={()=>setPage('admin')}/>}
           </div>
         </div>
       </div>

@@ -357,6 +357,7 @@ def _admin_user(user: dict) -> dict:
         "last_login":               user.get("last_login", ""),
         "last_seen":                user.get("last_seen", ""),
         "total_time_spent_minutes": int(user.get("total_time_spent_minutes", 0)),
+        "created_by":               user.get("created_by", user.get("admin_email", "")),
     })
     return base
 
