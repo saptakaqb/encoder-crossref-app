@@ -243,7 +243,7 @@ MFR_DISPLAY: dict[str, str] = {
 
 # Populated at startup from Silver — any manufacturer partition discovered there
 # is automatically valid. Hardcoded fallback covers cold-start before Silver loads.
-VALID_MANUFACTURERS: set[str] = {"kubler", "epc", "sick", "posital", "lika"}
+VALID_MANUFACTURERS: set[str] = {"kubler", "epc", "sick", "posital", "lika", "baumer"}
 
 # Ordered list with display names and counts — served by /api/manufacturers
 _available_mfrs: list[dict] = []
@@ -315,7 +315,9 @@ def _safe_user(user: dict) -> dict:
         "searches_remaining": max(0, limit - used_today),
         "allowed_sources":    user.get("allowed_sources", []),
         "allowed_targets":    user.get("allowed_targets", []),
-        "direction":          user.get("direction", "source_only"),
+        "allowed_results":      int(user.get("allowed_results", 10)),
+        "user_creation_limit":  int(user["user_creation_limit"]) if user.get("user_creation_limit") is not None else None,
+        "direction":            user.get("direction", "source_only"),
         "status":             user.get("status"),
         "admin_email":        user.get("admin_email"),
         "last_search_date":   last_date,
@@ -366,13 +368,14 @@ async def run_match(body: MatchRequest, user: dict = Depends(get_current_user)):
     email = user["userId"]
 
     # ── Access control ────────────────────────────────────────────────────
-    is_admin = user.get("role") in ("superadmin", "clientadmin")
-    direction = user.get("direction", "source_only")
+    user_role    = user.get("role", "enduser")
+    is_superadmin = user_role == "superadmin"
+    is_admin      = user_role in ("superadmin", "clientadmin")
+    direction     = user.get("direction", "source_only")
 
-    # Admins always have access to every manufacturer currently in Silver.
-    # Their DynamoDB allowed_sources/allowed_targets are never updated when a
-    # new manufacturer is added, so we use VALID_MANUFACTURERS for admins instead.
-    if is_admin:
+    # Only superadmin gets unrestricted access to all manufacturers.
+    # clientadmin and enduser are scoped to their configured allowed_sources/targets.
+    if is_superadmin:
         allowed_sources = list(VALID_MANUFACTURERS)
         allowed_targets = list(VALID_MANUFACTURERS)
     else:
@@ -387,12 +390,12 @@ async def run_match(body: MatchRequest, user: dict = Depends(get_current_user)):
         )
 
     # Enforce target: validate requested targets against user's allowed pool
-    if is_admin:
+    if is_superadmin:
         effective_targets = body.target_mfrs
         if not effective_targets:
             raise HTTPException(status_code=400, detail="At least one target manufacturer required")
     else:
-        # Enduser: requested targets must be within their allowed_targets pool
+        # clientadmin and enduser: requested targets must be within their allowed_targets pool
         if not allowed_targets:
             raise HTTPException(status_code=403, detail="No target manufacturers configured for this account.")
         effective_targets = [t for t in body.target_mfrs if t in allowed_targets]
@@ -404,8 +407,12 @@ async def run_match(body: MatchRequest, user: dict = Depends(get_current_user)):
     if not effective_targets:
         raise HTTPException(status_code=400, detail="Target manufacturer cannot be the same as source.")
 
-    # Cap top_n at 3 for endusers
-    effective_top_n = body.top_n if is_admin else min(body.top_n, 3)
+    # Cap top_n by per-user allowed_results (set by superadmin at account creation).
+    # Superadmin has no cap. clientadmin and enduser both respect their stored limit.
+    if is_superadmin:
+        effective_top_n = body.top_n
+    else:
+        effective_top_n = min(body.top_n, int(user.get("allowed_results", 3)))
 
     # ── Search limit (atomic, hard stop) ──────────────────────────────────
     updated_user = increment_search_count(email)
@@ -799,20 +806,28 @@ Return ONLY a valid JSON array (no markdown fences, no preamble). Rules:
 
 
 class CreateUserRequest(BaseModel):
-    name:            str
-    email:           str
-    password:        str
-    searches_limit:  int       = Field(50, ge=0, description="Daily search limit; 0 = locked account")
-    allowed_sources: List[str] = []
-    allowed_targets: List[str] = []
-    direction:       str       = "source_only"
-    client:          str       = ""
+    name:                str
+    email:               str
+    password:            str
+    # Role being created — superadmin can create 'enduser' or 'clientadmin'
+    role:                str           = Field("enduser", description="'enduser' or 'clientadmin'")
+    # Free-text company name — NOT a manufacturer ID (e.g. "Kübler Group", "EPC Corp")
+    client:              str           = ""
+    searches_limit:      int           = Field(50, ge=0,  description="Daily search limit; 0 = locked")
+    # Max results returned per search — enforced server-side in /api/match
+    allowed_results:     int           = Field(10, ge=1, le=20, description="Max results per search query")
+    # Max users this admin may create — only used when role='clientadmin'
+    user_creation_limit: Optional[int] = Field(None, ge=1, description="User creation cap for clientadmin accounts")
+    allowed_sources:     List[str]     = []
+    allowed_targets:     List[str]     = []
+    direction:           str           = "source_only"
 
-    @field_validator("client")
+    @field_validator("role")
     @classmethod
-    def client_must_be_valid(cls, v):
-        if v and v not in VALID_MANUFACTURERS:
-            raise ValueError(f"client must be one of {sorted(VALID_MANUFACTURERS)} or empty")
+    def role_must_be_valid(cls, v: str) -> str:
+        allowed = {"enduser", "clientadmin"}
+        if v not in allowed:
+            raise ValueError(f"role must be one of {sorted(allowed)}, got '{v}'")
         return v
 
 
@@ -972,12 +987,110 @@ async def get_analytics(admin: dict = Depends(require_superadmin)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+
+@app.get("/api/admin/analytics/client")
+async def get_client_analytics(admin: dict = Depends(require_admin)):
+    """
+    Scoped analytics for clientadmin role.
+    Returns stats only for users created by this admin.
+    Superadmin should use /api/admin/analytics instead.
+    """
+    import asyncio
+    from collections import Counter
+    from datetime import datetime
+
+    if admin.get("role") == "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmins should use /api/admin/analytics")
+
+    admin_id = admin.get("userId", "")
+    client   = admin.get("client", "")
+    limit    = int(admin.get("user_creation_limit") or 0)
+
+    def _fetch():
+        from auth import get_dynamo, _client_slug
+
+        dynamo = get_dynamo()
+        today  = datetime.utcnow().strftime("%Y-%m-%d")
+
+        # ── Get this admin's users ─────────────────────────────────────────────
+        # Primary filter: created_by = admin_id
+        # Fallback: client match for accounts created before created_by was added
+        all_client_users = dynamo.Table("encodermatch_users").scan(
+            FilterExpression="client = :c",
+            ExpressionAttributeValues={":c": client},
+        )["Items"]
+
+        my_users = [
+            u for u in all_client_users
+            if u.get("created_by") == admin_id or u.get("admin_email") == admin_id
+        ]
+        # Exclude other admins from the count
+        my_users = [u for u in my_users if u.get("role") != "clientadmin"]
+
+        total  = len(my_users)
+        locked = sum(
+            1 for u in my_users
+            if u.get("status") == "locked"
+            or (u.get("last_search_date", "") == today and
+                int(u.get("searches_used_today", 0) or 0) >= int(u.get("searches_limit", 99999) or 99999))
+        )
+        active = total - locked
+
+        # ── Aggregate search history for this admin's users ────────────────────
+        month_start = datetime.utcnow().replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+
+        my_user_ids = {u.get("userId") for u in my_users}
+        slug = _client_slug(client, "enduser")
+
+        import boto3 as _boto3, os as _os
+        ddb_client = _boto3.client("dynamodb", region_name=_os.environ.get("AWS_REGION","ap-south-1"))
+        all_tables = ddb_client.list_tables()["TableNames"]
+        hist_tables = [t for t in all_tables if t.startswith(f"encodermatch_history_{slug}")]
+
+        from boto3.dynamodb.conditions import Attr
+        all_searches = []
+        for tname in hist_tables:
+            resp = dynamo.Table(tname).scan(
+                FilterExpression=Attr("timestamp").gte(month_start)
+            )
+            # Keep only records belonging to this admin's users
+            for item in resp.get("Items", []):
+                if item.get("userId") in my_user_ids or item.get("email") in my_user_ids:
+                    all_searches.append(item)
+
+        total_searches = len(all_searches)
+        part_counts = Counter(s["src_part"] for s in all_searches if s.get("src_part"))
+        top_parts   = [{"part": p, "count": c} for p, c in part_counts.most_common(5)]
+
+        return {
+            "users": {
+                "total":  total,
+                "active": active,
+                "locked": locked,
+                "limit":  limit,
+            },
+            "searches": {
+                "this_month": total_searches,
+            },
+            "top_parts": top_parts,
+        }
+
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _fetch)
+    except Exception as exc:
+        print(f"  [ERROR] /api/admin/analytics/client failed: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/api/admin/users")
 async def create_user(
     body:  CreateUserRequest,
     admin: dict = Depends(require_admin),
 ):
-    """Create a new end user. Admin only. Password set immediately — no invite flow."""
+    """Create a new user (enduser or clientadmin). Admin only. Password set immediately — no invite flow."""
     from auth import hash_password, get_user
     from datetime import datetime as _dt
 
@@ -991,21 +1104,27 @@ async def create_user(
         "email":                    body.email,
         "name":                     body.name,
         "password_hash":            hash_password(body.password),
-        "role":                     "enduser",
+        "role":                     body.role,          # enduser | clientadmin
         "client":                   client,
         "searches_used_today":      0,
         "last_search_date":         "",
         "searches_limit":           body.searches_limit,
+        "allowed_results":          body.allowed_results,
         "allowed_sources":          body.allowed_sources,
         "allowed_targets":          body.allowed_targets,
         "direction":                body.direction,
         "status":                   "active",
         "admin_email":              admin.get("userId", ""),
+        "created_by":               admin.get("userId", ""),   # for scoped clientadmin views
         "created_at":               _dt.utcnow().isoformat(),
         "last_login":               "",
         "last_seen":                "",
         "total_time_spent_minutes": 0,
     }
+    # Store user creation limit only for clientadmin accounts
+    if body.role == "clientadmin" and body.user_creation_limit is not None:
+        new_user["user_creation_limit"] = body.user_creation_limit
+        new_user["users_created_count"] = 0
 
     from auth import get_dynamo, USERS_TABLE
     get_dynamo().Table(USERS_TABLE).put_item(Item=new_user)
@@ -1015,7 +1134,7 @@ async def create_user(
     import threading as _threading
     _threading.Thread(
         target=create_manufacturer_tables,
-        args=(client, "enduser"),
+        args=(client, body.role),
         daemon=True,
     ).start()
 

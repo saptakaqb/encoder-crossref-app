@@ -171,8 +171,63 @@ const MOCK_DATA = {
   availableDbs: ["kubler","epc","sick","baumer","nidec","lika"],
 };
 
-const ALL_MANUFACTURERS = ['kubler','epc','sick','posital','lika'];
-const MFR_LABELS = { kubler:'Kübler', epc:'EPC', sick:'Sick', posital:'Posital', lika:'Lika' };
+const ALL_MANUFACTURERS = ['kubler','epc','sick','posital','lika','baumer'];
+const MFR_LABELS = { kubler:'Kübler', epc:'EPC', sick:'Sick', posital:'Posital', lika:'Lika', baumer:'Baumer' };
+
+// Human-readable role labels used in badge, account tab, and modal
+const ROLE_LABELS = {
+  superadmin:  'Super Admin',
+  clientadmin: 'Client Admin',
+  enduser:     'End User',
+};
+
+/**
+ * NumInput — controlled numeric text field that allows clearing and retyping.
+ *
+ * Why this exists: React controlled <input type="number"> with an integer state
+ * prevents the user from deleting all digits, because parseInt('') = NaN and
+ * the onChange guard `if(!isNaN(n))` blocks the update, snapping back to the
+ * previous value.  This component maintains its own string display state so
+ * the user can type freely; the parent only receives valid clamped integers.
+ *
+ * Props:
+ *   value   — current integer value (from parent state, drives slider sync)
+ *   min     — minimum allowed integer
+ *   max     — maximum allowed integer
+ *   onChange — called with a valid clamped integer whenever it changes
+ *   style   — passed directly to the <input>
+ */
+function NumInput({ value, min, max, onChange, style }) {
+  const [raw, setRaw] = React.useState(String(value));
+
+  // Keep raw in sync when the parent value changes externally (e.g. slider drag)
+  React.useEffect(() => { setRaw(String(value)); }, [value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={raw}
+      onChange={e => {
+        // Strip non-digits so letters / symbols are silently rejected
+        const s = e.target.value.replace(/[^0-9]/g, '');
+        setRaw(s);
+        const n = parseInt(s, 10);
+        // Only update parent when we have a valid number in range
+        if (!isNaN(n)) onChange(Math.min(max, Math.max(min, n)));
+      }}
+      onBlur={() => {
+        // On blur, clamp whatever is displayed and sync everything
+        const n = parseInt(raw, 10);
+        const clamped = Math.min(max, Math.max(min, isNaN(n) ? min : n));
+        onChange(clamped);
+        setRaw(String(clamped));
+      }}
+      style={style}
+    />
+  );
+}
 
 // ── Design tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -454,16 +509,20 @@ function AppNav({ page, setPage, user, dark, onLogout, collapsed, setCollapsed }
   const bg='#0f172a', border='#1e293b', active='#1855d4', activeBg='rgba(24,85,212,0.15)';
   const textMut='#64748b', textNorm='#94a3b8', textAct='#f1f5f9';
   const isAdmin=user.role==='superadmin';
+  // clientadmin can access Console too — scoped to their own users
+  const canAccessConsole=user.role==='superadmin'||user.role==='clientadmin';
 
   const [dbStats, setDbStats] = React.useState(null);
   React.useEffect(() => {
+    // Only superadmin sees DB coverage stats — clientadmin cannot see manufacturer row counts
+    if (!isAdmin) return;
     fetch(`${FASTAPI_BASE_URL}/health/db`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d && d.status === 'ok') setDbStats(d); })
       .catch(() => {});
-  }, []);
+  }, [isAdmin]);
 
-  const MFR_LABELS = { kubler: 'Kübler', epc: 'EPC', sick: 'Sick', posital: 'Posital', lika: 'Lika', nidec: 'Nidec' };
+  const MFR_LABELS = { kubler: 'Kübler', epc: 'EPC', sick: 'Sick', posital: 'Posital', lika: 'Lika', baumer: 'Baumer', nidec: 'Nidec' };
   const fmtRows = n => n >= 1000000 ? (n/1000000).toFixed(2)+'M' : n >= 1000 ? (n/1000).toFixed(0)+'K' : String(n);
 
   const navItem=(id,label,icon)=>{
@@ -542,7 +601,7 @@ function AppNav({ page, setPage, user, dark, onLogout, collapsed, setCollapsed }
           {navItem('history','Search History',<svg width={15} height={15} viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" strokeWidth="1.4"/><path d="M7.5 4.5v3.5l2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>)}
           {navItem('weights','Scoring Weights',<svg width={15} height={15} viewBox="0 0 15 15" fill="none"><path d="M2 11h2.5M5 11V4M7.5 11h2.5M8 11V7M13 11h-2.5M10.5 11V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>)}
         </div>
-        {isAdmin&&(
+        {canAccessConsole&&(
           <div style={{marginTop:16}}>
             {!collapsed&&<div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',padding:'0 6px 6px'}}>Admin</div>}
             {navItem('admin','Console',<svg width={15} height={15} viewBox="0 0 15 15" fill="none"><rect x="1.5" y="2.5" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><line x1="5" y1="12" x2="10" y2="12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><line x1="7.5" y1="11.5" x2="7.5" y2="13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>)}
@@ -1297,13 +1356,12 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
             style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,
               background:dark?'#334155':'#e2e8f0',outline:'none',
               cursor:isEndUser?'not-allowed':'pointer',accentColor:'#1a3570'}}/>
-          <input type="number" min={1} max={50} value={topN} disabled={isEndUser}
-            onChange={e=>{const n=parseInt(e.target.value,10);if(!isNaN(n))setTopN(Math.min(50,Math.max(1,n)));}}
-            onBlur={e=>{const n=parseInt(e.target.value,10);setTopN(Math.min(50,Math.max(1,isNaN(n)?1:n)));}}
+          <NumInput value={topN} min={1} max={50} onChange={setTopN}
             style={{width:46,padding:'4px 6px',background:inputBg,border:`1px solid ${border}`,
               borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',
               fontSize:13,fontWeight:700,textAlign:'center',outline:'none',
-              cursor:isEndUser?'not-allowed':'text'}}/>
+              cursor:isEndUser?'not-allowed':'text',
+              ...(isEndUser?{pointerEvents:'none',opacity:0.6}:{})}}/>
         </div>
         <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
           <span style={{fontSize:10,color:textSec}}>1</span>
@@ -1863,7 +1921,7 @@ function UserDetailPanel({ user, dark, authToken, onClose, onLimitChange }) {
   const AccountTab=()=>(
     <div style={{display:'flex',flexDirection:'column',gap:16,padding:'4px 0'}}>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-        {[['Role',user.role||'—'],['Client',user.client||'—'],
+        {[['Role',ROLE_LABELS[user.role]||user.role||'—'],['Client',user.client||'—'],
           ['Status',user.status||'—'],['Direction',user.dir||'—'],
           ['Daily Limit',`${user.limit} searches/day`],['Created',fmtTime(user.created_at)],
           ['Last Login',fmtTime(user.last_login)],['Last Search',user.last||'—']
@@ -2064,6 +2122,80 @@ function UserDetailPanel({ user, dark, authToken, onClose, onLimitChange }) {
   );
 }
 
+
+// ── ClientAnalyticsTab — scoped analytics for clientadmin role ───────────────
+// Calls /api/admin/analytics/client which returns only this admin's users' data.
+function ClientAnalyticsTab({ dark, authToken }) {
+  const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
+  const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
+  const [data,setData]=React.useState(null);
+  const [loading,setLoading]=React.useState(true);
+  const [error,setError]=React.useState(null);
+
+  React.useEffect(()=>{
+    if(!authToken) return;
+    setLoading(true);
+    fetch('/api/admin/analytics/client',{headers:{Authorization:`Bearer ${authToken}`}})
+      .then(r=>r.ok?r.json():Promise.reject(r.status))
+      .then(d=>{setData(d);setLoading(false);})
+      .catch(()=>{setError('Failed to load analytics');setLoading(false);});
+  },[authToken]);
+
+  const sc=(label,value,sub,color)=>(
+    <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px',flex:1}}>
+      <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,marginBottom:8}}>{label}</div>
+      <div style={{fontSize:28,fontWeight:700,color:color||textPri,letterSpacing:'-0.02em',marginBottom:2}}>
+        {loading?<span style={{fontSize:14,color:textMut}}>Loading...</span>:value}
+      </div>
+      <div style={{fontSize:12,color:textSec}}>{loading?'':sub}</div>
+    </div>
+  );
+
+  const users    = data?.users    || {};
+  const searches = data?.searches || {};
+  const topParts = data?.top_parts || [];
+  const maxCount = topParts[0]?.count || 1;
+
+  if(error) return <div style={{padding:'20px',color:'#dc2626',fontSize:13}}>{error}</div>;
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:20}}>
+      <div style={{display:'flex',gap:14}}>
+        {sc('Your users',
+            users.total!=null?`${users.total} / ${users.limit??'—'}`:'—',
+            users.limit!=null?`${Math.max(0,(users.limit??0)-users.total)} slots remaining`:'',
+            '#1855d4')}
+        {sc('Active users',
+            users.total!=null?`${users.active} / ${users.total}`:'—',
+            users.locked?`${users.locked} locked`:'All active',
+            '#15803d')}
+        {sc('Searches this month',
+            searches.this_month??'—',
+            'By all your users',
+            '#d97706')}
+      </div>
+
+      <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px'}}>
+        <div style={{fontSize:13,fontWeight:700,color:textPri,marginBottom:14}}>Top Searched Parts (your users)</div>
+        {loading?(
+          <div style={{fontSize:13,color:textMut}}>Loading...</div>
+        ):topParts.length===0?(
+          <div style={{fontSize:13,color:textMut}}>No searches recorded yet.</div>
+        ):topParts.map((p,i)=>(
+          <div key={p.part} style={{display:'flex',alignItems:'center',gap:10,padding:'7px 0',borderBottom:i<topParts.length-1?`1px solid ${border}`:'none'}}>
+            <span style={{fontSize:11,fontWeight:700,color:textMut,width:16,flexShrink:0}}>{i+1}</span>
+            <span style={{fontFamily:'IBM Plex Mono, monospace',fontSize:12,color:textPri,flex:1}}>{p.part}</span>
+            <div style={{width:80,height:4,borderRadius:2,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
+              <div style={{width:`${(p.count/maxCount)*100}%`,height:'100%',background:'#7c3aed',borderRadius:2}}/>
+            </div>
+            <span style={{fontSize:12,fontWeight:600,color:textSec,width:28,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{p.count}×</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AnalyticsTab({ dark, authToken }) {
   const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
@@ -2165,93 +2297,267 @@ function AnalyticsTab({ dark, authToken }) {
   );
 }
 
-function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel }) {
-  // sources and targets are independent multi-select pools — no locked client field
-  const [form,setForm]=React.useState({name:'',email:'',password:'',sources:[],targets:[],limit:50});
-  const [saving,setSaving]=React.useState(false);
-  const [error,setError]=React.useState('');
-  const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
-  const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', inputBg=dark?'#0f172a':'#f8fafc';
-  const iStyle={width:'100%',boxSizing:'border-box',padding:'9px 10px',background:inputBg,border:`1px solid ${border}`,borderRadius:6,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,outline:'none'};
-  const lStyle={display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5};
-  const allMfrIds=(mfrs||[]).map(m=>m.id);
-  const toggleSrc=(m)=>setForm(f=>({...f,sources:f.sources.includes(m)?f.sources.filter(x=>x!==m):[...f.sources,m]}));
-  const toggleTgt=(m)=>setForm(f=>({...f,targets:f.targets.includes(m)?f.targets.filter(x=>x!==m):[...f.targets,m]}));
-  const mfrTab=(m, selected, onToggle)=>(
-    <label key={m} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'7px 14px',borderRadius:6,flex:1,justifyContent:'center',
+function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel, creatorRole, creatorUser }) {
+  // creatorRole: 'superadmin' | 'clientadmin' — controls which fields are shown
+  const isSuperAdmin  = creatorRole === 'superadmin';
+  // Derive from creatorUser so both client name and constraints are available
+  const creatorClient = creatorUser?.client || '';
+
+  // ── Constraints derived from the creating user ─────────────────────────────
+  // allMfrIds: every manufacturer in Silver (full list for superadmin)
+  // Source and target pools are ALWAYS kept separate — no union.
+  // A manufacturer in allowed_sources never bleeds into the target pool and vice versa.
+  const allMfrIds = (mfrs||[]).map(m=>m.id);
+  const availableSrcIds = isSuperAdmin
+    ? allMfrIds
+    : (creatorUser?.allowed_sources||[]).filter(id => allMfrIds.includes(id));
+  const availableTgtIds = isSuperAdmin
+    ? allMfrIds
+    : (creatorUser?.allowed_targets||[]).filter(id => allMfrIds.includes(id));
+
+  // Clientadmin cannot grant more daily searches than they themselves are allowed
+  const searchesMax = isSuperAdmin ? 50 : (creatorUser?.searches_limit || 50);
+
+  const [form, setForm] = React.useState({
+    role: 'enduser',                                                   // 'enduser' | 'clientadmin'
+    name: '', email: '', password: '',
+    client: isSuperAdmin ? '' : creatorClient,                         // inherited when clientadmin creates
+    sources: [], targets: [],
+    searches_limit: isSuperAdmin ? 50 : Math.min(10, searchesMax),     // capped to creator's limit
+    allowed_results: isSuperAdmin ? 10 : (creatorUser?.allowed_results || 10), // inherited when clientadmin
+    user_creation_limit: 10,                                           // clientadmin only
+  });
+  const [saving, setSaving] = React.useState(false);
+  const [error,  setError]  = React.useState('');
+
+  const cardBg  = dark?'#111827':'#ffffff';
+  const border  = dark?'#1e293b':'#e2e8f0';
+  const textPri = dark?'#f1f5f9':'#111827';
+  const textSec = dark?'#94a3b8':'#64748b';
+  const textMut = dark?'#475569':'#94a3b8';
+  const inputBg = dark?'#0f172a':'#f8fafc';
+  const iStyle  = {width:'100%',boxSizing:'border-box',padding:'9px 10px',background:inputBg,border:`1px solid ${border}`,borderRadius:6,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,outline:'none'};
+  const lStyle  = {display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5};
+  const toggleSrc = (m)=>setForm(f=>({...f,sources:f.sources.includes(m)?f.sources.filter(x=>x!==m):[...f.sources,m]}));
+  const toggleTgt = (m)=>setForm(f=>({...f,targets:f.targets.includes(m)?f.targets.filter(x=>x!==m):[...f.targets,m]}));
+  const mfrTab = (m, selected, onToggle)=>(
+    <label key={m} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'7px 12px',borderRadius:6,flex:'0 0 auto',
       background:selected?(dark?'#1e3a5f':'#eff6ff'):(dark?'#0f172a':'#f8fafc'),
       border:`1px solid ${selected?(dark?'#1e40af':'#bfdbfe'):border}`}}>
       <input type="checkbox" checked={selected} onChange={()=>onToggle(m)} style={{display:'none'}}/>
-      <span style={{fontSize:13,fontWeight:600,color:selected?(dark?'#60a5fa':'#1855d4'):textSec}}>{mfrLabel(m)}</span>
+      <span style={{fontSize:12.5,fontWeight:600,color:selected?(dark?'#60a5fa':'#1855d4'):textSec}}>{mfrLabel(m)}</span>
     </label>
   );
+
+  // ── Role toggle — only superadmin can choose ──────────────────────────────
+  const RoleToggle = ()=>(
+    <div>
+      <label style={lStyle}>Account Type</label>
+      <div style={{display:'flex',gap:0,background:dark?'#0f172a':'#f1f5f9',borderRadius:7,border:`1px solid ${border}`,padding:3,width:'fit-content'}}>
+        {[['enduser','End User'],['clientadmin','Client Admin']].map(([val,label])=>(
+          <button key={val} onClick={()=>setForm(f=>({...f,role:val}))}
+            style={{padding:'6px 18px',borderRadius:5,border:'none',cursor:'pointer',
+              fontFamily:'IBM Plex Sans, sans-serif',fontSize:12.5,fontWeight:600,
+              background:form.role===val?(dark?'#1e293b':'#ffffff'):'transparent',
+              color:form.role===val?textPri:textMut,
+              boxShadow:form.role===val?(dark?'none':'0 1px 3px rgba(0,0,0,0.1)'):'none',
+              transition:'all 0.15s'}}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {form.role==='clientadmin'&&(
+        <div style={{marginTop:6,fontSize:11.5,color:dark?'#60a5fa':'#1855d4',fontWeight:500}}>
+          Can log in, run searches, and create + manage end users for their client.
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Allowed results per search ────────────────────────────────────────────
+  const AllowedResultsSlider = ()=>(
+    <div>
+      <label style={lStyle}>Results per Search</label>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <input type="range" min={3} max={20} step={1} value={form.allowed_results}
+          onChange={e=>setForm(f=>({...f,allowed_results:+e.target.value}))}
+          style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,background:'#334155',outline:'none',cursor:'pointer',accentColor:'#1855d4'}}/>
+        <NumInput value={form.allowed_results} min={3} max={20}
+          onChange={v=>setForm(f=>({...f,allowed_results:v}))}
+          style={{width:52,padding:'5px 6px',background:inputBg,border:`1px solid ${border}`,borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:700,textAlign:'center',outline:'none'}}/>
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
+        <span style={{fontSize:10,color:textMut}}>3</span>
+        <span style={{fontSize:10,color:textMut}}>20</span>
+      </div>
+      {form.role==='clientadmin'&&(
+        <div style={{marginTop:4,fontSize:11,color:textMut}}>All users this admin creates will inherit this limit.</div>
+      )}
+    </div>
+  );
+
+  // ── User creation limit — clientadmin role only ───────────────────────────
+  const UserCreationLimit = ()=>(
+    <div>
+      <label style={lStyle}>Max Users This Admin Can Create</label>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <NumInput value={form.user_creation_limit} min={1} max={200}
+          onChange={v=>setForm(f=>({...f,user_creation_limit:v}))}
+          style={{...iStyle,width:100}}/>
+        <span style={{fontSize:12.5,color:textSec}}>user{form.user_creation_limit!==1?'s':''}</span>
+      </div>
+      <div style={{fontSize:11,color:textMut,marginTop:4}}>Admin sees a live count of slots used vs this cap.</div>
+    </div>
+  );
+
+  // ── Submit ────────────────────────────────────────────────────────────────
+  const handleCreate = async()=>{
+    setError('');
+    if(!form.name.trim()||!form.email.trim()||!form.password){setError('Name, email and password are required.');return;}
+    if(isSuperAdmin&&!form.client.trim()){setError('Client / Company name is required.');return;}
+    if(form.sources.length===0){setError('Select at least one source manufacturer.');return;}
+    if(form.targets.length===0){setError('Select at least one target manufacturer.');return;}
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        role: form.role,
+        client: isSuperAdmin ? form.client.trim() : (creatorClient||''),
+        searches_limit: form.searches_limit,
+        allowed_results: form.allowed_results,
+        allowed_sources: form.sources,
+        allowed_targets: form.targets,
+        direction: 'source_only',
+      };
+      if(form.role==='clientadmin') payload.user_creation_limit = form.user_creation_limit;
+      const resp = await fetch('/api/admin/users', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`},
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if(!resp.ok){setError(data.detail||'Failed to create account.');setSaving(false);return;}
+      onCreated&&onCreated();
+      onClose();
+    } catch(e){setError('Could not reach server.');setSaving(false);}
+  };
+
+  const isClientAdmin = form.role==='clientadmin';
+  const modalTitle = isClientAdmin ? 'Add Client Admin' : 'Add User';
+  const modalSub   = isClientAdmin
+    ? 'Can log in, run searches, and manage their own users'
+    : 'Account is active immediately — share credentials directly';
+
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(4px)'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:12,width:480,maxHeight:'85vh',overflow:'auto',boxShadow:'0 24px 60px rgba(0,0,0,0.25)'}}>
+      <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:12,width:500,maxHeight:'88vh',overflow:'auto',boxShadow:'0 24px 60px rgba(0,0,0,0.25)'}}>
+        {/* Header */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 22px 14px',borderBottom:`1px solid ${border}`}}>
           <div>
-            <div style={{fontSize:15,fontWeight:700,color:textPri}}>Add User</div>
-            <div style={{fontSize:12,color:textSec,marginTop:2}}>Account is active immediately — share credentials directly</div>
+            <div style={{fontSize:15,fontWeight:700,color:textPri}}>{modalTitle}</div>
+            <div style={{fontSize:12,color:textSec,marginTop:2}}>{modalSub}</div>
           </div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:textSec,display:'flex',padding:4}}>
             <svg width={16} height={16} viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
           </button>
         </div>
+
+        {/* Body */}
         <div style={{padding:'20px 22px',display:'flex',flexDirection:'column',gap:16}}>
           {error&&<div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'8px 12px',fontSize:12.5,color:'#b91c1c'}}>{error}</div>}
+
+          {/* Role toggle — superadmin only */}
+          {isSuperAdmin&&<RoleToggle/>}
+
+          {/* Name + Email */}
           <div style={{display:'flex',gap:12}}>
             <div style={{flex:1}}><label style={lStyle}>Full name</label><input style={iStyle} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Jane Smith" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
             <div style={{flex:1}}><label style={lStyle}>Work email</label><input style={iStyle} type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="j.smith@company.com" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
           </div>
-          <div><label style={lStyle}>Password</label><input style={iStyle} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Set a password for this user" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
+
+          {/* Password */}
+          <div><label style={lStyle}>Password</label><input style={iStyle} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Set a strong password" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
+
+          {/* Client — editable for superadmin, read-only badge for clientadmin */}
+          {isSuperAdmin?(
+            <div>
+              <label style={lStyle}>Client / Company</label>
+              <input style={iStyle} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} placeholder="e.g. Kübler Group" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/>
+              <div style={{fontSize:11,color:textMut,marginTop:4}}>Which company does this account belong to?</div>
+            </div>
+          ):(
+            <div style={{background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:6,padding:'8px 12px',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut}}>Client</span>
+              <span style={{fontSize:13,fontWeight:600,color:textPri}}>{creatorClient||'—'}</span>
+              <span style={{fontSize:11,color:textMut,marginLeft:'auto'}}>(inherited from your account)</span>
+            </div>
+          )}
+
+          {/* Sources */}
           <div>
             <label style={lStyle}>Allowed Source Manufacturers</label>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              {allMfrIds.map(m=>mfrTab(m, form.sources.includes(m), toggleSrc))}
-            </div>
-            <div style={{fontSize:11,color:dark?'#475569':'#94a3b8',marginTop:4}}>User can search encoders from these manufacturers.</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{availableSrcIds.map(m=>mfrTab(m,form.sources.includes(m),toggleSrc))}</div>
+            <div style={{fontSize:11,color:textMut,marginTop:4}}>Can use these manufacturers as the search source.</div>
           </div>
+
+          {/* Targets */}
           <div>
             <label style={lStyle}>Allowed Target Manufacturers</label>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              {allMfrIds.map(m=>mfrTab(m, form.targets.includes(m), toggleTgt))}
-            </div>
-            <div style={{fontSize:11,color:dark?'#475569':'#94a3b8',marginTop:4}}>User can find replacements in these manufacturers.</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{availableTgtIds.map(m=>mfrTab(m,form.targets.includes(m),toggleTgt))}</div>
+            <div style={{fontSize:11,color:textMut,marginTop:4}}>Can find replacements in these manufacturers.</div>
           </div>
+
+          {/* Daily searches limit — max is capped at creator's own searches_limit */}
           <div>
-            <label style={lStyle}>Daily search limit</label>
+            <label style={lStyle}>Daily Search Limit</label>
             <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <input type="range" min={0} max={50} step={1} value={form.limit}
-                onChange={e=>setForm(f=>({...f,limit:+e.target.value}))}
+              <input type="range" min={0} max={searchesMax} step={1} value={form.searches_limit}
+                onChange={e=>setForm(f=>({...f,searches_limit:+e.target.value}))}
                 style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,background:'#334155',outline:'none',cursor:'pointer',accentColor:'#1855d4'}}/>
-              <input type="number" min={0} max={50} value={form.limit}
-                onChange={e=>{const n=parseInt(e.target.value,10);if(!isNaN(n))setForm(f=>({...f,limit:Math.min(50,Math.max(0,n))}));}}
-                onBlur={e=>{const n=parseInt(e.target.value,10);setForm(f=>({...f,limit:Math.min(50,Math.max(0,isNaN(n)?0:n))}));}}
+              <NumInput value={form.searches_limit} min={0} max={searchesMax}
+                onChange={v=>setForm(f=>({...f,searches_limit:v}))}
                 style={{width:52,padding:'5px 6px',background:inputBg,border:`1px solid ${border}`,borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:700,textAlign:'center',outline:'none'}}/>
             </div>
             <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
-              <span style={{fontSize:10,color:dark?'#475569':'#94a3b8'}}>0 (locked)</span>
-              <span style={{fontSize:10,color:dark?'#475569':'#94a3b8'}}>50</span>
+              <span style={{fontSize:10,color:textMut}}>0 (locked)</span>
+              <span style={{fontSize:10,color:textMut}}>{searchesMax}{!isSuperAdmin&&<span style={{color:dark?'#60a5fa':'#1855d4'}}> (your limit)</span>}</span>
             </div>
+            {!isSuperAdmin&&(
+              <div style={{fontSize:11,color:dark?'#60a5fa':'#1855d4',marginTop:3,fontWeight:500}}>
+                Max capped at your own daily limit of {searchesMax}.
+              </div>
+            )}
           </div>
+
+          {/* Allowed results — superadmin sets via slider; clientadmin sees inherited read-only value */}
+          {isSuperAdmin
+            ? <AllowedResultsSlider/>
+            : (
+              <div>
+                <label style={lStyle}>Results per Search</label>
+                <div style={{display:'flex',alignItems:'center',gap:10,background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`,borderRadius:6,padding:'8px 12px'}}>
+                  <span style={{fontSize:20,fontWeight:700,color:dark?'#60a5fa':'#1855d4',minWidth:28,textAlign:'center'}}>{creatorUser?.allowed_results||10}</span>
+                  <div>
+                    <div style={{fontSize:12.5,fontWeight:600,color:textPri}}>results per search</div>
+                    <div style={{fontSize:11,color:textMut}}>Inherited from your account — set by AQB admin.</div>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+
+          {/* User creation cap — only when creating a clientadmin */}
+          {isSuperAdmin&&isClientAdmin&&<UserCreationLimit/>}
         </div>
+
+        {/* Footer */}
         <div style={{display:'flex',gap:10,padding:'14px 22px 20px',borderTop:`1px solid ${border}`}}>
           <button onClick={onClose} style={{flex:1,padding:'9px',background:'transparent',border:`1px solid ${border}`,borderRadius:7,cursor:'pointer',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,color:textSec}}>Cancel</button>
-          <button onClick={async()=>{
-            setError('');
-            if(!form.name||!form.email||!form.password){setError('Name, email and password are required.');return;}
-            if(form.sources.length===0){setError('Select at least one source manufacturer.');return;}
-            if(form.targets.length===0){setError('Select at least one target manufacturer.');return;}
-            setSaving(true);
-            try {
-              const resp=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`},
-                body:JSON.stringify({name:form.name,email:form.email,password:form.password,client:'',searches_limit:form.limit,allowed_sources:form.sources,allowed_targets:form.targets,direction:'source_only'})});
-              const data=await resp.json();
-              if(!resp.ok){setError(data.detail||'Failed to create user.');setSaving(false);return;}
-              onCreated&&onCreated(); onClose();
-            } catch(e){setError('Could not reach server.');setSaving(false);}
-          }} disabled={saving} style={{flex:2,padding:'9px',background:saving?'#bfdbfe':'#1855d4',border:'none',borderRadius:7,cursor:saving?'default':'pointer',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,color:'white'}}>
-            {saving?'Creating…':'Create User'}
+          <button onClick={handleCreate} disabled={saving}
+            style={{flex:2,padding:'9px',background:saving?'#bfdbfe':'#1855d4',border:'none',borderRadius:7,cursor:saving?'default':'pointer',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,color:'white'}}>
+            {saving?'Creating…':`Create ${isClientAdmin?'Client Admin':'User'}`}
           </button>
         </div>
       </div>
@@ -2405,13 +2711,19 @@ function DatabaseTab({ dark, authToken, mfrs, onMfrsUpdate }) {
   );
 }
 
-function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate }) {
+function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user }) {
   const [tab,setTab]=React.useState('users');
   const [showModal,setShowModal]=React.useState(false);
   const [users,setUsers]=React.useState([]);
   const [selectedUser,setSelectedUser]=React.useState(null);
   const bg=dark?'#0a0f1a':'#f4f6fa', cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
-  const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b';
+  const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
+
+  // Role-based visibility
+  const isSuperAdmin = user?.role === 'superadmin';
+  const userCreationLimit = user?.user_creation_limit ?? null;
+  const quotaReached = !isSuperAdmin && userCreationLimit !== null && users.length >= userCreationLimit;
+
   const fetchUsers=React.useCallback(async()=>{
     if(!authToken||API_MODE!=='live') return;
     try {
@@ -2432,31 +2744,94 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate }) {
   },[authToken]);
   React.useEffect(()=>{fetchUsers();},[fetchUsers]);
   const tabStyle=(id)=>({padding:'8px 16px',borderRadius:6,cursor:'pointer',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,border:'none',background:tab===id?(dark?'#1e293b':'#ffffff'):'transparent',color:tab===id?(dark?'#f1f5f9':'#111827'):textSec,boxShadow:tab===id?(dark?'none':'0 1px 3px rgba(0,0,0,0.08)'):'none'});
+
   return (
     <div style={{flex:1,background:bg,overflowY:'auto',padding:'24px 28px'}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+
+      {/* ── Header ── */}
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20}}>
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
             <span style={{fontFamily:'IBM Plex Mono, monospace',fontSize:13,fontWeight:700,color:dark?'#60a5fa':'#1a3570',letterSpacing:'0.02em'}}>aqb</span>
             <span style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#475569':'#94a3b8'}}>Admin Console</span>
           </div>
-          <h2 style={{margin:0,fontSize:18,fontWeight:700,color:textPri,letterSpacing:'-0.02em'}}>Client Management</h2>
-          <p style={{margin:'3px 0 0',fontSize:13,color:textSec}}>AQB Solutions · {users.length} user{users.length!==1?'s':''} across all clients</p>
+          <h2 style={{margin:0,fontSize:18,fontWeight:700,color:textPri,letterSpacing:'-0.02em'}}>
+            {isSuperAdmin ? 'Client Management' : 'Your Team'}
+          </h2>
+          {isSuperAdmin ? (
+            <p style={{margin:'3px 0 0',fontSize:13,color:textSec}}>
+              AQB Solutions · {users.length} user{users.length!==1?'s':''} across all clients
+            </p>
+          ) : (
+            <p style={{margin:'3px 0 0',fontSize:13,color:textSec}}>
+              {user?.client||'—'}
+            </p>
+          )}
+
+          {/* User quota strip — clientadmin only, always visible */}
+          {!isSuperAdmin&&userCreationLimit!==null&&(
+            <div style={{marginTop:10,display:'flex',alignItems:'center',gap:12}}>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:13,fontWeight:700,color:textPri,fontVariantNumeric:'tabular-nums'}}>
+                    {users.length}
+                    <span style={{fontWeight:400,color:textSec}}> / {userCreationLimit} users created</span>
+                  </span>
+                  {quotaReached&&(
+                    <span style={{fontSize:11,fontWeight:600,padding:'1px 6px',borderRadius:4,background:dark?'#450a0a':'#fee2e2',color:dark?'#f87171':'#b91c1c'}}>
+                      Limit reached
+                    </span>
+                  )}
+                </div>
+                {/* Progress bar */}
+                <div style={{width:220,height:5,borderRadius:3,background:dark?'#1e293b':'#e2e8f0',overflow:'hidden'}}>
+                  <div style={{
+                    width:`${Math.min(100,(users.length/userCreationLimit)*100)}%`,
+                    height:'100%',borderRadius:3,
+                    background:quotaReached?'#dc2626':users.length/userCreationLimit>0.8?'#d97706':'#7c3aed',
+                    transition:'width 0.3s ease',
+                  }}/>
+                </div>
+                <span style={{fontSize:11,color:quotaReached?(dark?'#f87171':'#b91c1c'):textMut}}>
+                  {quotaReached?'No more users can be added':`${userCreationLimit-users.length} slot${userCreationLimit-users.length!==1?'s':''} remaining`}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
-        {tab==='users'&&<button onClick={()=>setShowModal(true)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:7,background:'#1855d4',color:'white',border:'none',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,cursor:'pointer'}}>
-          <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="white" strokeWidth="1.8" strokeLinecap="round"/></svg>
-          Add User
-        </button>}
+
+        {/* Add User button — disabled at quota for clientadmin */}
+        {tab==='users'&&(
+          <button
+            onClick={()=>!quotaReached&&setShowModal(true)}
+            disabled={quotaReached}
+            title={quotaReached?`User limit of ${userCreationLimit} reached`:'Add a new user'}
+            style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:7,
+              background:quotaReached?(dark?'#1e293b':'#e2e8f0'):'#1855d4',
+              color:quotaReached?textMut:'white',
+              border:'none',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,
+              cursor:quotaReached?'not-allowed':'pointer',marginTop:4}}>
+            <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            Add User
+          </button>
+        )}
       </div>
+
+      {/* ── Tab bar — Database hidden from clientadmin ── */}
       <div style={{display:'flex',gap:4,background:dark?'#0f172a':'#f1f5f9',padding:4,borderRadius:8,width:'fit-content',marginBottom:20,border:`1px solid ${border}`}}>
         <button style={tabStyle('users')} onClick={()=>setTab('users')}>User Management</button>
         <button style={tabStyle('analytics')} onClick={()=>setTab('analytics')}>Usage Analytics</button>
-        <button style={tabStyle('database')} onClick={()=>setTab('database')}>Database</button>
+        {isSuperAdmin&&<button style={tabStyle('database')} onClick={()=>setTab('database')}>Database</button>}
       </div>
+
+      {/* ── Tab content ── */}
       {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={setSelectedUser}/>}
-      {tab==='analytics'&&<AnalyticsTab dark={dark} authToken={authToken}/>}
-      {tab==='database'&&<DatabaseTab dark={dark} authToken={authToken} mfrs={mfrs} onMfrsUpdate={onMfrsUpdate}/>}
-      {showModal&&<AddUserModal onClose={()=>setShowModal(false)} dark={dark} authToken={authToken} onCreated={fetchUsers} mfrs={mfrs} mfrLabel={mfrLabel}/>}
+      {tab==='analytics'&&(isSuperAdmin
+        ? <AnalyticsTab dark={dark} authToken={authToken}/>
+        : <ClientAnalyticsTab dark={dark} authToken={authToken}/>
+      )}
+      {tab==='database'&&isSuperAdmin&&<DatabaseTab dark={dark} authToken={authToken} mfrs={mfrs} onMfrsUpdate={onMfrsUpdate}/>}
+      {showModal&&<AddUserModal onClose={()=>setShowModal(false)} dark={dark} authToken={authToken} onCreated={fetchUsers} mfrs={mfrs} mfrLabel={mfrLabel} creatorRole={user?.role||'superadmin'} creatorUser={user}/>}
       {selectedUser&&<UserDetailPanel user={selectedUser} dark={dark} authToken={authToken} onClose={()=>setSelectedUser(null)}
         onLimitChange={(newLimit)=>{
           setSelectedUser(u=>({...u, limit:newLimit}));
@@ -2941,8 +3316,10 @@ function App() {
                 onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}>
                 <svg width={17} height={17} viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.3"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
               </button>
-              <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',padding:'2px 7px',borderRadius:4,background:dark?'#1e3a5f':'#eff6ff',color:dark?'#60a5fa':'#1a3570'}}>
-                {(baseUser.role==='superadmin'||baseUser.role==='clientadmin')?'ADMIN':'END USER'}
+              <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',padding:'2px 7px',borderRadius:4,
+                background: baseUser.role==='superadmin'?(dark?'#1e3a5f':'#eff6ff'):baseUser.role==='clientadmin'?(dark?'#2d1b69':'#ede9fe'):(dark?'#14532d':'#dcfce7'),
+                color: baseUser.role==='superadmin'?(dark?'#60a5fa':'#1a3570'):baseUser.role==='clientadmin'?(dark?'#a78bfa':'#7c3aed'):(dark?'#4ade80':'#15803d')}}>
+                {ROLE_LABELS[baseUser.role]||baseUser.role}
               </span>
               {baseUser.role==='enduser'&&(()=>{
                 const rem=baseUser.searches_limit-baseUser.searches_used, pct=rem/baseUser.searches_limit;
@@ -2974,7 +3351,7 @@ function App() {
             />}
             {page==='history'&&<HistoryPage user={baseUser} onRerun={()=>setPage('search')} dark={dark} authToken={authToken}/>}
             {page==='weights'&&<WeightsPage dark={dark} t2Raw={t2Raw} t3Raw={t3Raw} setT2Raw={setT2Raw} setT3Raw={setT3Raw}/>}
-            {page==='admin'&&<AdminPage dark={dark} authToken={authToken} mfrs={mfrs} mfrIds={mfrIds} mfrLabel={mfrLabel} onMfrsUpdate={setMfrs}/>}
+            {page==='admin'&&<AdminPage dark={dark} authToken={authToken} mfrs={mfrs} mfrIds={mfrIds} mfrLabel={mfrLabel} onMfrsUpdate={setMfrs} user={baseUser}/>}
           </div>
         </div>
       </div>

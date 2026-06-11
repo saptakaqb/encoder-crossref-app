@@ -9,6 +9,7 @@ URL strategy per manufacturer:
   Sick     -> CSV dict lookup:  sick_urls.csv  (keyed by part_number)
   Posital  -> CSV dict lookup:  posital_urls.csv (keyed by part_number)
   Lika     -> derived from source_datasheet PDF name
+  Baumer   -> direct: source_datasheet stores the product page URL scraped from Baumer website
 
 AQB Solutions | June 2026
 """
@@ -25,6 +26,7 @@ MFR_FULL_NAMES = {
     "sick":                      "SICK AG",
     "posital":                   "Posital (FRABA)",
     "lika":                      "Lika Electronic Srl",
+    "baumer":                    "Baumer GmbH",
 }
 
 # ── EPC family URL overrides ─────────────────────────────────────────────────
@@ -147,5 +149,20 @@ def get_product_url(
     if "lika" in mfr:
         url = _lika_url(source_datasheet)
         return (url, "family") if url else ("", "none")
+
+    # ── Baumer ───────────────────────────────────────────────────────────────
+    # source_datasheet holds the exact Baumer product page URL stored during
+    # web scraping (e.g. https://www.baumer.com/.../eil580-.../p/92560).
+    # Return it directly — no derivation needed.
+    if "baumer" in mfr:
+        if source_datasheet and source_datasheet.startswith("https://"):
+            return source_datasheet, "exact"
+        # Fallback: search on Baumer website
+        if part_number:
+            return (
+                f"https://www.baumer.com/us/en/search?query={part_number}",
+                "search",
+            )
+        return "", "none"
 
     return "", "none"

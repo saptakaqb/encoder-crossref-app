@@ -65,6 +65,34 @@ LIKA_FAMILY_PREFIXES: frozenset = frozenset({
     "SMK", "SMIG",
 })
 
+# Baumer family prefix set — used to set mfr_hint="baumer" in _parse_order_code.
+# Only includes families whose first hyphen-separated token is unambiguous.
+# Space-separated Baumer part numbers (e.g. "HOG 9", "POG 86") have no clean
+# first token and fall through to Stage 3/4 family-name lookup — correct behaviour.
+BAUMER_FAMILY_PREFIXES: frozenset = frozenset({
+    # Industrial incremental — 58mm optical series
+    "EIL576S", "EIL580", "EIL580P", "EXEIL580", "EXEIL580P",
+    "EN380", "EN580E", "EXEN580E",
+    # Heavy duty incremental — HOG/POG 1000-series (NEMA + explosion-proof)
+    "EHOG840", "EHOG860", "EHOG870", "EHOG890",
+    "EHOG1060", "EHOG1070", "EHOG1090", "EHOG1095",
+    "HOG840", "HOG860", "HOG870", "HOG890",
+    "HOG1060", "HOG1070", "HOG1090", "HOG1095",
+    "HOG163",
+    # Heavy duty — SinCos + combination
+    "HOGS",
+    # Heavy duty — combination encoders with fixed-length part numbers
+    "HMG10", "PMG10",
+    # Bearingless incremental
+    "EB260", "EB260F", "EB260K", "EB200E",
+    "HDmagMHGE", "HDmagMHGP",
+    "ITD22H00", "ITD49H00", "ITD69H00", "ITD89H00",
+    # Other distinct families
+    "EExHOG", "EExOG",
+    # HS35 (US-market hollow shaft series)
+    "HS35F", "HS35P", "HS35S",
+})
+
 # ── Posital lifecycle filter ──────────────────────────────────────────────────
 
 def _load_posital_exiting() -> frozenset:
@@ -485,6 +513,8 @@ def _parse_order_code(order_code: str, manufacturer: str = "") -> dict:
         mfr_hint = "epc"
     elif first_token in LIKA_FAMILY_PREFIXES:
         mfr_hint = "lika"
+    elif first_token in BAUMER_FAMILY_PREFIXES:
+        mfr_hint = "baumer"
 
     tokens = re.split(r"[._-]", order_code)
 
