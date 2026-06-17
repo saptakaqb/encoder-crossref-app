@@ -1,17 +1,19 @@
 """
 dynamo_setup.py
 ===============
-Run once to create DynamoDB tables and seed AQB admin accounts.
+Run ONCE on a fresh environment to create DynamoDB tables and seed AQB admin accounts.
 Regular users are created through the admin console.
 
     python dynamo_setup.py
 
-Safe to re-run — skips table creation if tables already exist,
-updates existing accounts if already seeded.
+!! DO NOT RE-RUN ON A LIVE SYSTEM !!
+seed_users() calls put_item() unconditionally — it will overwrite live admin records
+and reset passwords to the plaintext values hardcoded in this script.
+Table creation is idempotent (skips existing tables), but user seeding is NOT.
 
-Per-manufacturer history and feedback tables (e.g. encodermatch_history_posital,
-encodermatch_feedback_posital) are created dynamically when end users are created
-via the admin console. Admin tables (_admin suffix) are created here at setup.
+Per-client history and feedback tables (e.g. encodermatch_history_posital,
+encodermatch_feedback_posital) are created dynamically when users are created
+via the admin console. The _admin and _aqb_solutions tables are created here at setup.
 
 AQB Solutions | June 2026
 """

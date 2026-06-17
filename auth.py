@@ -35,19 +35,28 @@ USERS_TABLE   = os.environ.get("DYNAMO_USERS_TABLE",  "encodermatch_users")
 ERRORS_TABLE  = os.environ.get("DYNAMO_ERRORS_TABLE", "encodermatch_errors")
 SES_SENDER    = os.environ.get("SES_SENDER_EMAIL", "")  # set once SES verified
 
-# ── Per-manufacturer table routing ─────────────────────────────────────────
-# History and feedback tables are split by manufacturer (client) for privacy.
-# Admin searches use the _admin suffix; end user searches use a slug of their
-# client name (e.g. 'posital' -> encodermatch_history_posital).
+# ── Per-client table routing ───────────────────────────────────────────────
+# History and feedback tables are split by client for privacy and isolation.
+# superadmin  → _aqb_solutions   (AQB internal bucket)
+# clientadmin → _{client_slug}   (same bucket as their endusers)
+# enduser     → _{client_slug}   (e.g. 'posital' → encodermatch_history_posital)
 
 def _client_slug(client: str, role: str = "enduser") -> str:
     """Derive the table suffix for a user.
-    Admins always use 'admin'. End users get a sanitised slug of their client name.
-    e.g. client='Posital (FRABA)', role='enduser' -> 'posital_fraba'
-         client='AQB Solutions',  role='superadmin' -> 'admin'
+
+    superadmin  → 'aqb_solutions'   (AQB internal bucket)
+    clientadmin → client slug       (same tables as their endusers)
+    enduser     → client slug
+
+    All activity for a given client (clientadmin + endusers) lands in one
+    set of tables, enabling clean per-client analytics and data isolation.
+
+    e.g. client='Posital (FRABA)', role='enduser'     -> 'posital_fraba'
+         client='Kubler',          role='clientadmin' -> 'kubler'
+         client='AQB Solutions',   role='superadmin'  -> 'aqb_solutions'
     """
-    if role in ("superadmin", "clientadmin"):
-        return "admin"
+    if role == "superadmin":
+        return "aqb_solutions"
     slug = re.sub(r"[^a-z0-9]", "_", client.lower().strip())
     slug = re.sub(r"_+", "_", slug).strip("_")
     return slug or "unknown"

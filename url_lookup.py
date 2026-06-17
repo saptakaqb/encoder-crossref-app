@@ -108,9 +108,23 @@ def get_product_url(
     # ── Kübler ───────────────────────────────────────────────────────────────
     if "kubler" in mfr or "kübler" in mfr:
         if family:
+            slug = family.strip()
+            # Silver product_family stores some families with a "Sendix " prefix
+            # (e.g. "Sendix 5000", "Sendix 5814") but the kuebler.com product-finder
+            # slug is just the bare model code ("5000", "5814"). Verified against
+            # live site June 2026: /product-details/5000, /5020, /5804, /5805,
+            # /KIS50, /KIH50, /H120, /5814FS2, /A02H all resolve correctly
+            # without the "Sendix " prefix.
+            if slug.lower().startswith("sendix "):
+                slug = slug[len("Sendix "):]
+            # K58I-PR / K80I-PR Performance variants use "_Performance" suffix
+            # instead of "-PR" in the URL slug — verified
+            # /product-details/K58I_Performance resolves correctly.
+            if slug.endswith("-PR"):
+                slug = slug[:-3] + "_Performance"
             return (
                 f"https://www.kuebler.com/en/products/measurement/encoders/"
-                f"product-finder/product-details/{family}",
+                f"product-finder/product-details/{slug}",
                 "family",
             )
         return "", "none"

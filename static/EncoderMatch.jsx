@@ -529,19 +529,19 @@ function AppNav({ page, setPage, user, dark, onLogout, collapsed, setCollapsed }
     const isActive=page===id;
     if (collapsed) return (
       <button key={id} onClick={()=>setPage(id)} title={label}
-        style={{display:'flex',alignItems:'center',justifyContent:'center',padding:'10px 0',borderRadius:6,width:'100%',background:isActive?activeBg:'transparent',border:'none',cursor:'pointer',color:isActive?textAct:textMut}}
+        style={{display:'flex',alignItems:'center',justifyContent:'center',padding:'10px 0',borderRadius:6,width:'100%',background:isActive?activeBg:'transparent',border:'none',cursor:'pointer',color:isActive?textAct:textMut,transition:'background 0.18s ease, color 0.18s ease'}}
         onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background='rgba(255,255,255,0.04)';}}
         onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background='transparent';}}>
         <span style={{color:isActive?textAct:textMut}}>{icon}</span>
       </button>
     );
     return (
-      <button key={id} onClick={()=>setPage(id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',borderRadius:6,width:'100%',background:isActive?activeBg:'transparent',border:'none',cursor:'pointer',color:isActive?textAct:textNorm,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:isActive?600:400,textAlign:'left'}}
+      <button key={id} onClick={()=>setPage(id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',borderRadius:6,width:'100%',background:isActive?activeBg:'transparent',border:'none',cursor:'pointer',color:isActive?textAct:textNorm,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:isActive?600:400,textAlign:'left',transition:'background 0.18s ease, color 0.18s ease'}}
         onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background='rgba(255,255,255,0.04)';}}
         onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background='transparent';}}>
-        <span style={{color:isActive?textAct:textMut,flexShrink:0}}>{icon}</span>
+        <span style={{color:isActive?textAct:textMut,flexShrink:0,transition:'color 0.18s ease'}}>{icon}</span>
         {label}
-        {isActive&&<div style={{marginLeft:'auto',width:3,height:14,borderRadius:2,background:active}}/>}
+        {isActive&&<div style={{marginLeft:'auto',width:3,height:14,borderRadius:2,background:active,animation:'fadeInPage 0.18s ease'}}/>}
       </button>
     );
   };
@@ -2312,7 +2312,7 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
   },[tab,user,authToken]);
 
   React.useEffect(()=>{
-    if(tab!=='feedback'||!user||!authToken) return;
+    if(tab!=='feedback'&&tab!=='overview'||!user||!authToken) return;
     setLoadingF(true);
     fetch(`/api/admin/users/${encodeURIComponent(user.email)}/feedback?limit=100`,
       {headers:{'Authorization':`Bearer ${authToken}`}})
@@ -2345,6 +2345,45 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
   };
   const fmtDur=(m)=>{ if(!m||m===0) return '0 min'; if(m<60) return `${m} min`; const h=Math.floor(m/60),r=m%60; return r?`${h}h ${r}m`:`${h}h`; };
 
+  // ── Download CSV of analytics for all users (admin/clientadmin scope) ──────
+  const [downloadingCsv,setDownloadingCsv] = React.useState(false);
+  const downloadAllUsersCsv = async () => {
+    if(downloadingCsv) return;
+    setDownloadingCsv(true);
+    try {
+      const r = await fetch('/api/admin/users', {headers:{'Authorization':`Bearer ${authToken}`}});
+      const d = await r.json();
+      const rows = d.users || [];
+      const cols = [
+        'email','name','role','client','status',
+        'searches_used','searches_limit','searches_remaining','allowed_results',
+        'allowed_sources','allowed_targets','user_creation_limit','direction',
+        'total_time_spent_minutes','created_at','last_login','last_seen','created_by',
+      ];
+      const esc = (v) => {
+        if (v===null||v===undefined) return '';
+        const s = Array.isArray(v) ? v.join('|') : String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+      };
+      const csvLines = [cols.join(',')];
+      for (const u of rows) csvLines.push(cols.map(c=>esc(u[c])).join(','));
+      const csvContent = csvLines.join('\n');
+      const blob = new Blob([csvContent], {type:'text/csv;charset=utf-8;'});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0,10);
+      a.href = url;
+      a.download = `encodermatch_users_analytics_${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(_) {
+      // silently fail — button stays clickable for retry
+    }
+    setDownloadingCsv(false);
+  };
+
   const scCfg={active:{bg:dark?'#14532d':'#dcfce7',text:dark?'#4ade80':'#15803d'},locked:{bg:dark?'#450a0a':'#fee2e2',text:dark?'#f87171':'#b91c1c'},invited:{bg:dark?'#1e3a5f':'#dbeafe',text:dark?'#60a5fa':'#1e40af'}};
   const sc=scCfg[user?.status]||scCfg.active;
 
@@ -2353,10 +2392,41 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
   // ── Overview ─────────────────────────────────────────────────────────────
   const OverviewTab = ()=>{
     const pct = user.limit>0 ? user.used/user.limit : 0;
+
+    // Analytics computed from loaded history + feedback state
+    const scores    = history.filter(r=>r.top_score!=null).map(r=>parseFloat(r.top_score)).filter(s=>!isNaN(s)&&s>0);
+    const avgScore  = scores.length>0 ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*100) : null;
+    const thumbsUp  = feedback.filter(f=>f.is_good_match===true||f.is_good_match==='true').length;
+    const satisfPct = feedback.length>0 ? Math.round(thumbsUp/feedback.length*100) : null;
+
+    // 7-day bar chart data
+    const sevenDays = Array.from({length:7},(_,i)=>{
+      const d=new Date(); d.setDate(d.getDate()-(6-i));
+      const ds=d.toISOString().slice(0,10);
+      return {ds, label:d.toLocaleDateString('en-GB',{weekday:'short'}),
+              count:history.filter(r=>r.timestamp?.slice(0,10)===ds).length};
+    });
+    const maxDay=Math.max(...sevenDays.map(d=>d.count),1);
+
+    // Top searched parts
+    const partMap={};
+    history.forEach(r=>{if(r.src_part) partMap[r.src_part]=(partMap[r.src_part]||0)+1;});
+    const topParts=Object.entries(partMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+    // Violet palette — matches Client Admin accent
+    const vPri ='#7c3aed';
+    const vText=dark?'#a78bfa':'#7c3aed';
+    const vBg  =dark?'#2d1b69':'#ede9fe';
+    const vBdr =dark?'#4c1d95':'#ddd6fe';
+
+    const scoreColor =avgScore!=null?(avgScore>=85?(dark?'#4ade80':'#15803d'):avgScore>=70?(dark?'#fbbf24':'#d97706'):(dark?'#f87171':'#b91c1c')):textMut;
+    const satisfColor=satisfPct!=null?(satisfPct>=70?(dark?'#4ade80':'#15803d'):satisfPct>=40?(dark?'#fbbf24':'#d97706'):(dark?'#f87171':'#b91c1c')):textMut;
+
     return (
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
+
+        {/* Row 1 — existing session stat cards */}
         <div style={{display:'flex',gap:12}}>
-          {/* Searches today — interactive via the sticky card, shown here for context */}
           <div style={{flex:1,background:cardBg,border:`1px solid ${limitChanged?'#bfdbfe':border}`,borderRadius:10,padding:'16px 20px',transition:'border-color 0.15s'}}>
             <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:textMut,marginBottom:8}}>Searches Today</div>
             <div style={{fontSize:24,fontWeight:700,color:pct>=1?'#dc2626':pct>=0.8?'#d97706':textPri,marginBottom:6}}>{user.used} <span style={{fontSize:16,color:textSec}}>/ {limitVal}</span></div>
@@ -2365,9 +2435,9 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
             </div>
           </div>
           {[
-            ['Last Search', user.last&&user.last!=='—'?user.last:'Never', 'Date'],
-            ['Last Login', user.last_login?fmtTime(user.last_login):'—', 'Session'],
-            ['Time in App', fmtDur(user.total_time_spent_minutes||0), 'While tab active'],
+            ['Last Search',user.last&&user.last!=='—'?user.last:'Never','Date'],
+            ['Last Login', user.last_login?fmtTime(user.last_login):'—','Session'],
+            ['Time in App',fmtDur(user.total_time_spent_minutes||0),'While tab active'],
           ].map(([label,value,sub])=>(
             <div key={label} style={{flex:1,background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px'}}>
               <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:textMut,marginBottom:8}}>{label}</div>
@@ -2376,7 +2446,75 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
             </div>
           ))}
         </div>
-        {/* Recent activity preview */}
+
+        {/* Row 2 — analytics cards (violet accent on first) */}
+        <div style={{display:'flex',gap:12}}>
+          <div style={{flex:1,background:vBg,border:`1px solid ${vBdr}`,borderRadius:10,padding:'16px 20px'}}>
+            <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:vText,marginBottom:8}}>Total Searches</div>
+            <div style={{fontSize:28,fontWeight:700,color:vText,lineHeight:1}}>{history.length>=100?'100+':history.length}</div>
+            <div style={{fontSize:11.5,color:vText,opacity:0.65,marginTop:5}}>All time</div>
+          </div>
+          <div style={{flex:1,background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px'}}>
+            <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:textMut,marginBottom:8}}>Avg Match Score</div>
+            {avgScore!=null
+              ?<><div style={{fontSize:28,fontWeight:700,color:scoreColor,lineHeight:1}}>{avgScore}%</div>
+                  <div style={{fontSize:11.5,color:textSec,marginTop:5}}>{scores.length} scored searches</div></>
+              :<div style={{fontSize:14,color:textMut,marginTop:4}}>No data yet</div>}
+          </div>
+          <div style={{flex:1,background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px'}}>
+            <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:textMut,marginBottom:8}}>Feedback Score</div>
+            {loadingF
+              ?<div style={{fontSize:13,color:textMut}}>Loading…</div>
+              :satisfPct!=null
+                ?<><div style={{fontSize:28,fontWeight:700,color:satisfColor,lineHeight:1}}>{satisfPct}%</div>
+                    <div style={{fontSize:11.5,color:textSec,marginTop:5}}>{thumbsUp} of {feedback.length} thumbs up</div></>
+                :<div style={{fontSize:14,color:textMut,marginTop:4}}>No feedback yet</div>}
+          </div>
+        </div>
+
+        {/* Row 3 — 7-day bar chart + top searched parts */}
+        {history.length>0&&(
+          <div style={{display:'flex',gap:12}}>
+            <div style={{flex:2,background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px'}}>
+              <div style={{fontSize:12,fontWeight:700,color:textPri,marginBottom:16}}>Searches — Last 7 Days</div>
+              <div style={{display:'flex',alignItems:'flex-end',gap:6,height:88}}>
+                {sevenDays.map((d,i)=>{
+                  const isToday=i===6;
+                  const barH=d.count>0?Math.max(8,Math.round(d.count/maxDay*64)):2;
+                  return(
+                    <div key={d.ds} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                      <div style={{fontSize:10,fontWeight:600,color:vText,height:14,lineHeight:'14px'}}>{d.count>0?d.count:''}</div>
+                      <div style={{width:'100%',height:64,display:'flex',alignItems:'flex-end'}}>
+                        <div style={{width:'100%',height:`${barH}px`,
+                          background:d.count>0?(isToday?`linear-gradient(180deg,${vText},${vPri})`:vPri):(dark?'#1e293b':'#f1f5f9'),
+                          borderRadius:'3px 3px 0 0'}}/>
+                      </div>
+                      <div style={{fontSize:10,color:isToday?vText:textMut,fontWeight:isToday?700:400}}>{d.label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {topParts.length>0&&(
+              <div style={{flex:1,background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 20px',minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:700,color:textPri,marginBottom:16}}>Top Searched Parts</div>
+                <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                  {topParts.map(([part,count],i)=>(
+                    <div key={part} style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{fontSize:10.5,fontWeight:700,color:vText,width:14,textAlign:'center',flexShrink:0}}>{i+1}</div>
+                      <div style={{flex:1,fontSize:11,fontFamily:'IBM Plex Mono, monospace',color:textPri,
+                        overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={part}>{part}</div>
+                      <div style={{fontSize:11,fontWeight:600,color:vText,background:vBg,
+                        padding:'2px 7px',borderRadius:4,flexShrink:0}}>{count}×</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Row 4 — Recent Activity (existing, unchanged) */}
         <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden'}}>
           <div style={{padding:'14px 18px',borderBottom:`1px solid ${border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <span style={{fontSize:13,fontWeight:700,color:textPri}}>Recent Activity</span>
@@ -2404,6 +2542,7 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
             </table>
           )}
         </div>
+
       </div>
     );
   };
@@ -2516,6 +2655,16 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
         </button>
         <span style={{color:textMut,fontSize:13}}>›</span>
         <span style={{fontSize:13,color:textSec,fontWeight:500}}>{user?.name||user?.email||'—'}</span>
+        <button onClick={downloadAllUsersCsv} disabled={downloadingCsv} title="Download analytics CSV for all users"
+          style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:6,
+            border:`1px solid ${border}`,background:cardBg,cursor:downloadingCsv?'default':'pointer',
+            color:textSec,fontFamily:'IBM Plex Sans, sans-serif',fontSize:12.5,fontWeight:600,
+            opacity:downloadingCsv?0.6:1}}
+          onMouseEnter={e=>{if(!downloadingCsv)e.currentTarget.style.borderColor=dark?'#475569':'#cbd5e1';}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=border;}}>
+          <svg width={13} height={13} viewBox="0 0 14 14" fill="none"><path d="M7 1v8M3.5 6L7 9.5 10.5 6M2 12h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          {downloadingCsv?'Preparing…':'Download All Users CSV'}
+        </button>
       </div>
 
       {/* Page header */}
@@ -4164,6 +4313,20 @@ function App() {
   const [tweaks,setTweaksState]=React.useState(TWEAK_DEFAULTS);
   const setTweak=(id,val)=>setTweaksState(t=>({...t,[id]:val}));
   const [page,setPage]=React.useState('login');
+
+  // ── Directional page transitions ────────────────────────────────────────
+  // Pages are ordered left-to-right by their position in the primary nav.
+  // Moving to a "later" page slides the new content in from the right
+  // (forward); moving to an "earlier" page slides it in from the left
+  // (backward) — the same convention used by iOS/Material shared-axis
+  // transitions, so navigation always implies a sense of direction.
+  const PAGE_ORDER = {login:0, selector:0, search:1, history:2, weights:3, admin:4, userDetail:5};
+  const prevPageOrderRef = React.useRef(PAGE_ORDER[page] ?? 0);
+  const currentPageOrder = PAGE_ORDER[page] ?? 0;
+  const pageDirection = currentPageOrder >= prevPageOrderRef.current ? 'fwd' : 'back';
+  prevPageOrderRef.current = currentPageOrder;
+  const pageAnim = pageDirection==='fwd' ? 'pageSlideFwd' : 'pageSlideBack';
+
   const [loggedInRole,setLoggedInRole]=React.useState('enduser');
   const [selectedDetailUser,setSelectedDetailUser]=React.useState(null);
   const [authToken,setAuthToken]=React.useState(null);
@@ -4266,7 +4429,7 @@ function App() {
 
   if (page==='login'||page==='selector') return (
     <>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes pageSlideFwd{from{opacity:0;transform:translateX(18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes pageSlideBack{from{opacity:0;transform:translateX(-18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}`}</style>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
       {sessionMsg&&(
         <div style={{position:'fixed',top:0,left:0,right:0,zIndex:9999,background:'#1e3a5f',color:'#e2e8f0',padding:'11px 20px',fontSize:13,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center',gap:10,boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}}>
@@ -4275,10 +4438,12 @@ function App() {
           <button onClick={()=>setSessionMsg('')} style={{marginLeft:8,background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:18,lineHeight:1,padding:0}}>×</button>
         </div>
       )}
-      {page==='login'
-        ? <LoginPage onLogin={handleLogin} dark={dark}/>
-        : <ProductSelectorPage dark={dark} user={baseUser} onSelect={(dest)=>setPage(dest)}/>
-      }
+      <div key={page} style={{flex:1,minHeight:0,animation:`${pageAnim} 0.32s cubic-bezier(0.16,1,0.3,1)`,willChange:'transform,opacity'}}>
+        {page==='login'
+          ? <LoginPage onLogin={handleLogin} dark={dark}/>
+          : <ProductSelectorPage dark={dark} user={baseUser} onSelect={(dest)=>setPage(dest)}/>
+        }
+      </div>
       <TweaksPanel tweaks={tweaks} setTweak={setTweak}>
         <TweakSection title="Appearance"><TweakRadio id="colorMode" label="Mode" options={[{value:'light',label:'Light'},{value:'dark',label:'Dark'}]} tweaks={tweaks} setTweak={setTweak}/></TweakSection>
       </TweaksPanel>
@@ -4287,13 +4452,13 @@ function App() {
 
   return (
     <>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideInToast{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideInToast{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}@keyframes pageSlideFwd{from{opacity:0;transform:translateX(18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes pageSlideBack{from{opacity:0;transform:translateX(-18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes fadeInPage{from{opacity:0}to{opacity:1}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}`}</style>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
       <div style={{display:'flex',height:'100vh',overflow:'hidden',background:appBg,fontFamily:'IBM Plex Sans, sans-serif'}}>
         <AppNav page={page} setPage={setPage} user={baseUser} dark={dark} onLogout={handleLogout} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed}/>
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0}}>
           <div style={{height:44,flexShrink:0,background:dark?'#0f172a':'#ffffff',borderBottom:`1px solid ${dark?'#1e293b':'#e2e8f0'}`,display:'flex',alignItems:'center',padding:'0 20px',gap:8}}>
-            <span style={{fontSize:12.5,fontWeight:600,color:dark?'#94a3b8':'#64748b'}}>
+            <span key={page} style={{fontSize:12.5,fontWeight:600,color:dark?'#94a3b8':'#64748b',animation:'fadeInPage 0.22s ease'}}>
               {page==='selector'&&'Products'}{page==='search'&&'Cross-Reference Search'}{page==='history'&&'Search History'}{page==='admin'&&'Admin Console · AQB Solutions'}{page==='weights'&&'Scoring Weights'}{page==='userDetail'&&`User Detail · ${selectedDetailUser?.name||selectedDetailUser?.email||''}`}
             </span>
             <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:12}}>
@@ -4324,7 +4489,7 @@ function App() {
               })()}
             </div>
           </div>
-          <div style={{flex:1,display:'flex',overflow:'hidden',minHeight:0}}>
+          <div key={page} style={{flex:1,display:'flex',overflow:'hidden',minHeight:0,animation:`${pageAnim} 0.32s cubic-bezier(0.16,1,0.3,1)`,willChange:'transform,opacity'}}>
             {page==='search'&&<SearchPage user={baseUser} dark={dark} authToken={authToken} setUser={setLiveUser} t2Raw={t2Raw} t3Raw={t3Raw}
               mfrs={mfrs} mfrIds={mfrIds} mfrLabel={mfrLabel}
               liveResults={liveResults} setLiveResults={setLiveResults}
