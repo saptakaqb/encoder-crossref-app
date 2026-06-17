@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [v2.3.0] — 2026-06-17
+
+### Added
+- **Role colour system** — four distinct, equally-vibrant colour palettes applied consistently across the entire app. Superadmin: blue `#2563eb`. Client admin: purple `#7c3aed` (existing). Client admin's end users ("child"): teal `#0891b2`. Direct accounts (superadmin-created end users): emerald `#059669`. Each role's colour drives: avatar gradient, row left border, connector dot, hover tint, role badge, and sticky card border in `UserDetailPage`. All avatar shapes unified to 8px rounded square.
+- **Super Admins section in user management table** — dedicated "SUPER ADMINS" section at the top of the user list, above "CLIENT ADMIN AND USERS" and "DIRECT ACCOUNTS". Superadmins no longer appear mixed into Direct Accounts. Section header conditional — hidden in client admin views (superadmins belong to `AQB Solutions` client, not visible in scoped views). "Created by" line suppressed for superadmin rows.
+- **Max Users Allowed adjuster in UserDetailPage sticky card** — new `−`/`+`/Apply control below Daily Search Limit. Appears when a superadmin views a client admin user. Purple accent. Calls `PUT /api/admin/users/{email}` with `{user_creation_limit: value}`. Only visible to superadmin viewers; client admin viewers see "Managed by AQB Solutions" for all limit controls.
+- **LIMIT / FULL badges** — inline red pill badge (`LIMIT`) appears next to the count in the Daily Searches column when a user has hit their daily search limit. `FULL` badge appears in the Users column when a client admin's user creation quota is reached. Visible to superadmin at a glance without opening the user detail page.
+
+### Changed
+- **Activity/Users column split** — single "Activity / Users" column replaced by two separate columns: "Daily Searches" and "Users". Client admin rows now show their own daily search usage in the first column and their user creation quota in the second. End user rows show a `—` in the Users column. Grid template updated from 7 to 8 columns.
+- **User management three-way filter** — `users` array now split into `superAdmins` (role=superadmin), `clientAdmins` (role=clientadmin), and `endUsers` (role=enduser, pure). Superadmins no longer bleed into `directUsers`.
+- **UserDetailPage sticky card alignment** — tab bar moved above the two-column flex row. Sticky card at `top:0` now naturally aligns with the first stat card row instead of starting 56px above it.
+- **Dark/Light mode toggle on login and product selector pages** — replaced bottom-right `TweaksPanel` floating popup with the same top-right inline sun/moon icon button used in the main app. Single click toggles. Consistent position and behaviour across all pages.
+- **AQB Solutions logo** — wrapped in white rounded badge container (`background:white, borderRadius:10, padding:8px 14px, boxShadow`) on the login page left panel. Accommodates the PNG logo's white background cleanly on the navy panel.
+- **Brand colour consistency** — nav icon (expanded and collapsed) and EncoderIcon on the product selector page changed from blue/indigo to orange `#e87820`, matching the login page ENCODERMATCH badge and favicon.
+- **Download User Data profile.csv column names** — renamed from terse internal names (`dir`, `sources`, `dbs`, `limit`) to readable: `direction`, `allowed_sources`, `allowed_targets`, `daily_search_limit`, `max_users_allowed`.
+- **`UpdateUserRequest` (main.py)** — added `user_creation_limit: Optional[int]` field so `PUT /api/admin/users/{email}` can update a client admin's user creation quota.
+
+### Fixed
+- **Favicon browser cache** (`index.html`) — added explicit `<link rel="icon" href="/favicon.ico?v=3" type="image/svg+xml"/>`. Browsers cache `.ico` files independently from the page; the explicit link tag with version query string forces a fresh request of the orange SVG favicon.
+- **Stale `resolution_ppr` warning** — confirmed `resolution_ppr` field does not appear in any Python source file. `matcher.py` already uses `cpr_values` JSON array correctly throughout. Prior context doc warnings about a needed rewrite were stale and have been removed.
+
+---
+
 ## [v2.2.1] — 2026-06-16
 
 ### Added

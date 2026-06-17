@@ -1,6 +1,6 @@
 # EncoderMatch — AI-Powered Industrial Hardware Cross-Reference Tool
 
-**AQB Solutions** | Production v2.2.1 | Deployed on AWS ECS Fargate (ap-south-1)
+**AQB Solutions** | Production v2.3.0 | Deployed on AWS ECS Fargate (ap-south-1)
 
 ---
 
@@ -33,21 +33,23 @@ Designed for sales engineers and procurement teams who need to find hardware equ
 EncoderMatch uses a 3-tier role hierarchy:
 
 ```
-Superadmin (AQB Solutions)
-    └── creates → Client Admin (e.g. Kübler Admin)
-                      └── creates → End User (e.g. Kübler Distributor 1)
+Superadmin (AQB Solutions)     — blue
+    └── creates → Client Admin (e.g. Kübler Admin)   — purple
+                      └── creates → End User          — teal (child) / emerald (direct)
 ```
+
+Each role has a distinct colour applied consistently to avatars, row borders, and badges throughout the app.
 
 | Role | Can Do | Cannot Do |
 |---|---|---|
-| **Superadmin** | Full access — all users, all manufacturers, all admin functions | — |
-| **Client Admin** | Search (scoped), create/manage their own users, view their users' analytics | See other clients' data, DB stats, refresh Silver |
+| **Superadmin** | Full access — all users, all manufacturers, all admin functions, adjust any limit | — |
+| **Client Admin** | Search (scoped), create/manage their own users, view their users' analytics | Adjust any search limit or user quota (read-only — contact AQB to change) |
 | **End User** | Search within their assigned manufacturer pools | Access admin console |
 
 **Constraints flow down — never up:**
-- Superadmin sets `allowed_results` (max results per search) and `user_creation_limit` for each client admin
+- Superadmin sets `allowed_results` (max results per search), `searches_limit` (daily cap), and `user_creation_limit` for each client admin
 - Client admin cannot grant users more access than they themselves have (sources, targets, search limit, results)
-- Client admin's `allowed_results` is inherited by all users they create
+- All limit controls in the admin UI are read-only for client admin viewers; adjustments require superadmin
 
 ---
 
@@ -286,10 +288,9 @@ python csv_to_silver_parquet.py --mfr all --s3
 
 | Issue | Impact | Status |
 |---|---|---|
-| `matcher.py` uses obsolete `resolution_ppr` integer field | Matcher rewrite required for Silver CPR JSON array schema | Deferred — works via fallback |
 | No dev/prod environment separation | Test users created locally appear in ECS (same DynamoDB) | Add `ENV` prefix to all table names; run `dynamo_setup.py` for dev tables |
 | `get_all_users_for_client` does full table scan | Slow as user count grows | Add GSI on `client` field in `encodermatch_users` |
-| Kübler URL slugs not yet deployed | Some Kübler product URLs in result cards are broken | Implement `url_lookup.py` slug fix (designed, not deployed) |
+| Kübler URL slugs not yet deployed | Some Kübler product URLs in result cards are broken | `url_lookup.py` slug fix designed, not deployed |
 | Baumer remaining categories not yet scraped | Absolute, bearingless, programmable, functional safety categories missing | Scraping in progress |
 | Absolute encoder Silver schema not designed | Absolute encoder data (Lika, Baumer) not yet in Silver | Design session required |
 | EC2 ETL node is t3.small | Baumer scraper is memory-heavy | Upgrade to t3.medium |
@@ -297,3 +298,4 @@ python csv_to_silver_parquet.py --mfr all --s3
 | `output_voltage_class` T1 forbidden pairs incomplete | Dead code — SQL pre-filter masks it | Add TTL/universal/analog pairs to `matcher_config.json` |
 | `refresh_silver_ecs.py` has hardcoded credentials | Security risk | Move to env vars |
 | `dynamo_setup.py` has hardcoded passwords | Security risk | Move to env vars |
+| Large accumulated undeployed bundle | 7 files changed across Jun 12–17 not yet on ECS | Deploy: auth.py, dynamo_setup.py, serializers.py, url_lookup.py, EncoderMatch.jsx, main.py, index.html |
