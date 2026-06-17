@@ -167,7 +167,7 @@ async def favicon():
     from fastapi.responses import Response
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
-        '<circle cx="16" cy="16" r="16" fill="#1855d4"/>'
+        '<circle cx="16" cy="16" r="16" fill="#e87820"/>'
         '<circle cx="16" cy="16" r="12" fill="none" stroke="white" stroke-width="2"/>'
         '<circle cx="16" cy="16" r="6" fill="none" stroke="white" stroke-width="2"/>'
         '<circle cx="16" cy="16" r="2.5" fill="white"/>'
@@ -261,10 +261,11 @@ class MatchRequest(BaseModel):
     custom_weights: Optional[dict] = None   # {"tier2":{field:w,...},"tier3":{field:w,...}}
 
 class UpdateUserRequest(BaseModel):
-    searches_limit:  Optional[int]       = None
-    allowed_targets: Optional[List[str]] = None
-    direction:       Optional[str]       = None
-    status:          Optional[str]       = None
+    searches_limit:      Optional[int]       = None
+    user_creation_limit: Optional[int]       = None
+    allowed_targets:     Optional[List[str]] = None
+    direction:           Optional[str]       = None
+    status:              Optional[str]       = None
 
 class FeedbackRequest(BaseModel):
     search_id:               str

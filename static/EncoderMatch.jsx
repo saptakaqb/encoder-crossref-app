@@ -181,6 +181,21 @@ const ROLE_LABELS = {
   enduser:     'End User',
 };
 
+// ── Role colour palette ────────────────────────────────────────────────────────
+// Four equally-vibrant colours: superadmin=blue, clientadmin=purple,
+// child user (under clientadmin)=teal, direct account (under superadmin)=green.
+// Each entry: pri/priDark = text/icon, bg/bgDark = tinted fill,
+//             bdr/bdrDark = border, grd = avatar gradient, shape = avatar border-radius.
+function roleColors(userType) {
+  const p = {
+    superadmin:  { pri:'#2563eb', priDark:'#60a5fa', bg:'#eff6ff', bgDark:'#1e3a5f', bdr:'#bfdbfe', bdrDark:'#1e40af', grd:'linear-gradient(135deg,#2563eb,#60a5fa)', shape:'8px' },
+    clientadmin: { pri:'#7c3aed', priDark:'#a78bfa', bg:'#ede9fe', bgDark:'#2d1b69', bdr:'#ddd6fe', bdrDark:'#4c1d95', grd:'linear-gradient(135deg,#7c3aed,#a78bfa)', shape:'8px' },
+    child:       { pri:'#0891b2', priDark:'#22d3ee', bg:'#ecfeff', bgDark:'#164e63', bdr:'#a5f3fc', bdrDark:'#155e75', grd:'linear-gradient(135deg,#0891b2,#22d3ee)', shape:'8px' },
+    direct:      { pri:'#059669', priDark:'#34d399', bg:'#ecfdf5', bgDark:'#064e3b', bdr:'#a7f3d0', bdrDark:'#065f46', grd:'linear-gradient(135deg,#059669,#34d399)', shape:'8px' },
+  };
+  return p[userType] || p.direct;
+}
+
 /**
  * NumInput — controlled numeric text field that allows clearing and retyping.
  *
@@ -569,13 +584,13 @@ function AppNav({ page, setPage, user, dark, onLogout, collapsed, setCollapsed }
           <>
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
               <svg width={26} height={26} viewBox="0 0 26 26" fill="none">
-                <circle cx="13" cy="13" r="12" fill="#1855d4" fillOpacity="0.15" stroke="#1855d4" strokeWidth="1.5"/>
-                <circle cx="13" cy="13" r="6" stroke="#1855d4" strokeWidth="1.5"/>
-                <circle cx="13" cy="13" r="2" fill="#1855d4"/>
-                <line x1="13" y1="1" x2="13" y2="7" stroke="#1855d4" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="13" y1="19" x2="13" y2="25" stroke="#1855d4" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="1" y1="13" x2="7" y2="13" stroke="#1855d4" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="19" y1="13" x2="25" y2="13" stroke="#1855d4" strokeWidth="1.5" strokeLinecap="round"/>
+                <circle cx="13" cy="13" r="12" fill="#e87820" fillOpacity="0.15" stroke="#e87820" strokeWidth="1.5"/>
+                <circle cx="13" cy="13" r="6" stroke="#e87820" strokeWidth="1.5"/>
+                <circle cx="13" cy="13" r="2" fill="#e87820"/>
+                <line x1="13" y1="1" x2="13" y2="7" stroke="#e87820" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="13" y1="19" x2="13" y2="25" stroke="#e87820" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="1" y1="13" x2="7" y2="13" stroke="#e87820" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="19" y1="13" x2="25" y2="13" stroke="#e87820" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
               <span style={{fontSize:14,fontWeight:700,color:'#f1f5f9',letterSpacing:'-0.01em'}}>EncoderMatch</span>
             </div>
@@ -587,9 +602,9 @@ function AppNav({ page, setPage, user, dark, onLogout, collapsed, setCollapsed }
         {collapsed&&(
           <div style={{display:'flex',justifyContent:'center'}}>
             <svg width={26} height={26} viewBox="0 0 26 26" fill="none">
-              <circle cx="13" cy="13" r="12" fill="#1855d4" fillOpacity="0.15" stroke="#1855d4" strokeWidth="1.5"/>
-              <circle cx="13" cy="13" r="6" stroke="#1855d4" strokeWidth="1.5"/>
-              <circle cx="13" cy="13" r="2" fill="#1855d4"/>
+              <circle cx="13" cy="13" r="12" fill="#e87820" fillOpacity="0.15" stroke="#e87820" strokeWidth="1.5"/>
+              <circle cx="13" cy="13" r="6" stroke="#e87820" strokeWidth="1.5"/>
+              <circle cx="13" cy="13" r="2" fill="#e87820"/>
             </svg>
           </div>
         )}
@@ -666,21 +681,21 @@ function ProductSelectorPage({ dark, user, onSelect }) {
 
   const EncoderIcon = ()=>(
     <svg width={52} height={52} viewBox="0 0 52 52" fill="none">
-      <circle cx="26" cy="26" r="24" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="1.5" opacity="0.4"/>
-      <circle cx="26" cy="26" r="16" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="1.5" opacity="0.6"/>
-      <circle cx="26" cy="26" r="8"  stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2"/>
-      <circle cx="26" cy="26" r="3"  fill={dark?'#818cf8':'#4f46e5'}/>
+      <circle cx="26" cy="26" r="24" stroke="#e87820" strokeWidth="1.5" opacity="0.4"/>
+      <circle cx="26" cy="26" r="16" stroke="#e87820" strokeWidth="1.5" opacity="0.6"/>
+      <circle cx="26" cy="26" r="8"  stroke="#e87820" strokeWidth="2"/>
+      <circle cx="26" cy="26" r="3"  fill="#e87820"/>
       {[0,45,90,135,180,225,270,315].map(deg=>{
         const r=deg*Math.PI/180;
         return <line key={deg}
           x1={26+9*Math.cos(r)} y1={26+9*Math.sin(r)}
           x2={26+15*Math.cos(r)} y2={26+15*Math.sin(r)}
-          stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="1.5" strokeLinecap="round"/>;
+          stroke="#e87820" strokeWidth="1.5" strokeLinecap="round"/>;
       })}
-      <line x1="26" y1="2"  x2="26" y2="8"  stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="26" y1="44" x2="26" y2="50" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="2"  y1="26" x2="8"  y2="26" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="44" y1="26" x2="50" y2="26" stroke={dark?'#818cf8':'#4f46e5'} strokeWidth="2" strokeLinecap="round"/>
+      <line x1="26" y1="2"  x2="26" y2="8"  stroke="#e87820" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="26" y1="44" x2="26" y2="50" stroke="#e87820" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="2"  y1="26" x2="8"  y2="26" stroke="#e87820" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="44" y1="26" x2="50" y2="26" stroke="#e87820" strokeWidth="2" strokeLinecap="round"/>
     </svg>
   );
 
@@ -946,7 +961,9 @@ function LoginPage({ onLogin, dark }) {
           <circle cx="250" cy="250" r="6" fill="white" opacity="0.5"/>
         </svg>
           <div style={{position:'relative',zIndex:1}}>
-            <img src="/assets/logo2.webp" alt="AQB Solutions" style={{height:44,objectFit:'contain',display:'block'}}/>
+            <div style={{display:'inline-block',background:'white',borderRadius:10,padding:'8px 14px',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
+              <img src="/assets/logo2.png" alt="AQB Solutions" style={{height:40,objectFit:'contain',display:'block'}}/>
+            </div>
           </div>
         <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',position:'relative',zIndex:1}}>
           <div style={{display:'inline-flex',alignItems:'center',gap:8,marginBottom:20}}>
@@ -1949,11 +1966,14 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
   const [hov,setHov]=React.useState(null);
   const [deleting,setDeleting]=React.useState(null);
 
-  // ── Separate client admins from end users, then group ─────────────────────
+  // ── Three-way split: superadmins → clientadmins → endusers ──────────────────
+  // Superadmins get their own section at the top.
+  // Endusers are pure role='enduser' only — superadmins no longer bleed into directUsers.
+  const superAdmins  = users.filter(u => u.role === 'superadmin');
   const clientAdmins = users.filter(u => u.role === 'clientadmin');
-  const endUsers     = users.filter(u => u.role !== 'clientadmin');
+  const endUsers     = users.filter(u => u.role === 'enduser');
 
-  // Map each end user to their creating admin (by created_by or admin_email)
+  // Map endusers to their creating clientadmin (if any)
   const usersByAdmin = {};
   const directUsers  = [];
   for (const u of endUsers) {
@@ -2005,8 +2025,8 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
     return <span style={{fontSize:11,fontWeight:600,padding:'2px 7px',borderRadius:4,background:c.bg,color:c.text}}>{c.label}</span>;
   };
 
-  // Grid: [20px chevron] [name] [email] [activity/quota] [target dbs] [status] [delete]
-  const COLS = '20px 1fr 1fr 165px 145px 70px 40px';
+  // Grid: [20px chevron] [name] [email] [daily searches] [users quota] [target dbs] [status] [delete]
+  const COLS = '20px 1fr 1fr 130px 110px 145px 70px 40px';
 
   // ── Client admin row ───────────────────────────────────────────────────────
   const ClientAdminRow = ({ ca, isLastInList }) => {
@@ -2023,7 +2043,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
         <div
           onMouseEnter={()=>setHov(ca.id)}
           onMouseLeave={()=>setHov(null)}
-          onClick={()=>onSelectUser&&onSelectUser(ca)}
+          onClick={()=>onSelectUser&&onSelectUser({...ca,userType:'clientadmin'})}
           style={{
             display:'grid', gridTemplateColumns:COLS,
             padding:'11px 16px', alignItems:'center', gap:'0 8px',
@@ -2071,11 +2091,32 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
           {/* Email */}
           <span style={{fontSize:12,color:textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ca.email}</span>
 
+          {/* Daily searches — client admin's own usage */}
+          {(()=>{
+            const sp = ca.limit>0 ? ca.used/ca.limit : 0;
+            const sc = sp>=1?'#dc2626':sp>=0.8?'#d97706':textPri;
+            return (
+              <div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
+                  <span style={{fontSize:11.5,fontWeight:600,color:sc,fontVariantNumeric:'tabular-nums'}}>
+                    {ca.used} / {ca.limit}
+                    {sp>=1&&<span style={{marginLeft:5,fontSize:9,fontWeight:700,padding:'1px 4px',borderRadius:3,background:'#dc2626',color:'white'}}>LIMIT</span>}
+                  </span>
+                  <span style={{fontSize:10,color:textMut}}>{Math.round(sp*100)}%</span>
+                </div>
+                <div style={{height:4,borderRadius:2,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
+                  <div style={{width:`${Math.min(100,sp*100)}%`,height:'100%',borderRadius:2,background:sc,transition:'width 0.3s'}}/>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* User quota */}
           <div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
               <span style={{fontSize:11.5,fontWeight:600,color:qColor,fontVariantNumeric:'tabular-nums'}}>
                 {quotaUsed}{quota!=null?` / ${quota}`:''} users
+                {quota!=null&&quotaPct>=1&&<span style={{marginLeft:5,fontSize:9,fontWeight:700,padding:'1px 4px',borderRadius:3,background:'#dc2626',color:'white'}}>FULL</span>}
               </span>
               {quota!=null&&<span style={{fontSize:10,color:textMut}}>{Math.round(quotaPct*100)}%</span>}
             </div>
@@ -2128,44 +2169,45 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
     const pct      = u.limit > 0 ? u.used / u.limit : 0;
     const barColor = pct>=1?'#dc2626':pct>=0.8?'#d97706':'#1855d4';
     const isHov    = hov === u.id;
+    const userType = u.role==='superadmin' ? 'superadmin' : (isChild ? 'child' : 'direct');
+    const rc       = roleColors(userType);
 
     return (
       <div
         onMouseEnter={()=>setHov(u.id)}
         onMouseLeave={()=>setHov(null)}
-        onClick={()=>onSelectUser&&onSelectUser(u)}
+        onClick={()=>onSelectUser&&onSelectUser({...u,userType})}
         style={{
           display:'grid', gridTemplateColumns:COLS,
           padding:'10px 16px', alignItems:'center', gap:'0 8px',
-          background: isHov ? (dark?'#1e293b':'#f8fafc') : 'transparent',
+          background: isHov ? (dark?rc.bgDark:rc.bg) : 'transparent',
           borderBottom: !isLast ? `1px solid ${border}` : 'none',
-          // Blue left border for child rows, transparent for direct
-          borderLeft: isChild ? `3px solid ${dark?'#1e40af':'#93c5fd'}` : '3px solid transparent',
+          borderLeft: `3px solid ${dark?rc.bdrDark:rc.bdr}`,
           cursor:'pointer', transition:'background 0.12s',
         }}>
 
-        {/* Connector dot for child rows, empty for direct */}
+        {/* Connector dot for child rows, empty for direct/superadmin */}
         <div style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
           {isChild && (
             <div style={{width:5,height:5,borderRadius:'50%',
-              background:dark?'#1e40af':'#93c5fd',flexShrink:0}}/>
+              background:dark?rc.priDark:rc.pri,flexShrink:0}}/>
           )}
         </div>
 
         {/* Name */}
         <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}>
-          <div style={{width:30,height:30,borderRadius:'50%',flexShrink:0,
-            background:dark?'#1e293b':'#f1f5f9',border:`1px solid ${border}`,
+          <div style={{width:30,height:30,borderRadius:rc.shape,flexShrink:0,
+            background:rc.grd,
             display:'flex',alignItems:'center',justifyContent:'center',
-            fontSize:11,fontWeight:700,color:dark?'#94a3b8':'#64748b'}}>
-            {u.name.split(' ').map(p=>p[0]).join('')}
+            fontSize:11,fontWeight:700,color:'white',letterSpacing:'0.04em'}}>
+            {u.name.split(' ').map(p=>p[0]).join('').toUpperCase().slice(0,2)}
           </div>
           <div style={{minWidth:0}}>
             <div style={{fontSize:13,fontWeight:600,color:textPri,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{u.name}</div>
             <div style={{fontSize:11,color:textMut}}>
               {u.last&&u.last!=='—' ? `Last search: ${u.last}` : 'No searches yet'}
             </div>
-            {!isChild&&u.created_by&&<div style={{fontSize:10.5,color:textMut,marginTop:1}}>
+            {!isChild&&u.created_by&&userType!=='superadmin'&&<div style={{fontSize:10.5,color:textMut,marginTop:1}}>
               by <span style={{fontWeight:600,color:dark?'#94a3b8':'#475569'}}>{nameById[u.created_by]||u.created_by}</span>
             </div>}
           </div>
@@ -2180,6 +2222,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
             <span style={{fontSize:11.5,fontWeight:600,fontVariantNumeric:'tabular-nums',
               color:pct>=1?'#dc2626':pct>=0.8?'#d97706':textPri}}>
               {u.used} / {u.limit}
+              {pct>=1&&<span style={{marginLeft:5,fontSize:9,fontWeight:700,padding:'1px 4px',borderRadius:3,background:'#dc2626',color:'white'}}>LIMIT</span>}
             </span>
             <span style={{fontSize:10,color:textMut}}>{Math.round(pct*100)}%</span>
           </div>
@@ -2187,6 +2230,9 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
             <div style={{width:`${Math.min(100,pct*100)}%`,height:'100%',borderRadius:2,background:barColor}}/>
           </div>
         </div>
+
+        {/* Users column — n/a for end users */}
+        <span style={{fontSize:11.5,color:textMut}}>—</span>
 
         {/* Target DBs */}
         <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
@@ -2225,7 +2271,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
       {/* Column headers */}
       <div style={{display:'grid',gridTemplateColumns:COLS,padding:'10px 16px',gap:'0 8px',
         background:dark?'#0f172a':'#f8fafc',borderBottom:`1px solid ${border}`}}>
-        {['','User','Email','Activity / Users','Target DBs','Status',''].map((h,i)=>(
+        {['','User','Email','Daily Searches','Users','Target DBs','Status',''].map((h,i)=>(
           <span key={i} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',
             letterSpacing:'0.06em',color:textMut}}>{h}</span>
         ))}
@@ -2238,16 +2284,47 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
         </div>
       )}
 
-      {/* Client admin groups with their sub-users */}
+      {/* ── Super Admins section ── */}
+      {superAdmins.length>0&&(
+        <div style={{padding:'7px 16px',background:dark?'#0f172a':'#f8fafc',
+          borderBottom:`1px solid ${border}`,
+          display:'flex',alignItems:'center',gap:10}}>
+          <div style={{flex:1,height:1,background:border}}/>
+          <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',
+            letterSpacing:'0.07em',color:textMut,whiteSpace:'nowrap',flexShrink:0}}>
+            Super Admins
+          </span>
+          <div style={{flex:1,height:1,background:border}}/>
+        </div>
+      )}
+      {superAdmins.map((u,ui)=>(
+        <EndUserRow key={u.id} u={u} isChild={false}
+          isLast={ui===superAdmins.length-1 && clientAdmins.length===0 && directUsers.length===0}/>
+      ))}
+
+      {/* ── Client Admin And Users section ── */}
+      {clientAdmins.length>0&&(
+        <div style={{padding:'7px 16px',background:dark?'#0f172a':'#f8fafc',
+          borderTop: superAdmins.length>0 ? `1px solid ${border}` : 'none',
+          borderBottom:`1px solid ${border}`,
+          display:'flex',alignItems:'center',gap:10}}>
+          <div style={{flex:1,height:1,background:border}}/>
+          <span style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',
+            letterSpacing:'0.07em',color:textMut,whiteSpace:'nowrap',flexShrink:0}}>
+            Client Admin And Users
+          </span>
+          <div style={{flex:1,height:1,background:border}}/>
+        </div>
+      )}
       {clientAdmins.map((ca, ci) => (
         <ClientAdminRow key={ca.id} ca={ca}
           isLastInList={ci===clientAdmins.length-1}/>
       ))}
 
-      {/* Direct accounts — users created directly by superadmin */}
+      {/* ── Direct Accounts section ── */}
       {directUsers.length>0&&(
         <>
-          {clientAdmins.length>0&&(
+          {(superAdmins.length>0||clientAdmins.length>0)&&(
             <div style={{padding:'7px 16px',background:dark?'#0f172a':'#f8fafc',
               borderTop:`1px solid ${border}`,borderBottom:`1px solid ${border}`,
               display:'flex',alignItems:'center',gap:10}}>
@@ -2272,7 +2349,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
 // ── UserDetailPage — full-page user record ────────────────────────────────────
 // Replaces the side panel. Mounted at page='userDetail'.
 // key={user.email} in the parent forces a fresh mount per user.
-function UserDetailPage({ user, dark, authToken, onBack }) {
+function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
   const [tab,setTab]           = React.useState('overview');
   const [history,setHistory]   = React.useState([]);
   const [errors,setErrors]     = React.useState([]);
@@ -2290,6 +2367,11 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
   const isClientAdmin = user?.role==='clientadmin';
   const roleLabel = ROLE_LABELS[user?.role]||user?.role||'—';
+  const userType  = user?.userType || (
+    user?.role==='superadmin' ? 'superadmin' :
+    user?.role==='clientadmin' ? 'clientadmin' : 'direct'
+  );
+  const rc = roleColors(userType);
 
   // Fetch history — used by both overview (first 5) and activity (paginated)
   React.useEffect(()=>{
@@ -2335,6 +2417,26 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
     setUpdatingLimit(false);
   };
 
+  // User creation limit adjuster — only relevant when viewed user is a clientadmin
+  const initQuota = user?.user_creation_limit ?? null;
+  const [userQuotaVal,setUserQuotaVal]     = React.useState(initQuota);
+  const [savedUserQuota,setSavedUserQuota] = React.useState(initQuota);
+  const [updatingQuota,setUpdatingQuota]   = React.useState(false);
+  const quotaChanged = userQuotaVal !== savedUserQuota;
+  const adjustQuota  = (d)=>{ if(!updatingQuota) setUserQuotaVal(v=>Math.max(1,v+d)); };
+  const applyUserQuota = async()=>{
+    if(!quotaChanged||updatingQuota||userQuotaVal==null) return;
+    setUpdatingQuota(true);
+    try {
+      const r = await fetch(`/api/admin/users/${encodeURIComponent(user.email)}`,{
+        method:'PUT', headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`},
+        body:JSON.stringify({user_creation_limit:userQuotaVal}),
+      });
+      if(r.ok) setSavedUserQuota(userQuotaVal); else setUserQuotaVal(savedUserQuota);
+    } catch(_){ setUserQuotaVal(savedUserQuota); }
+    setUpdatingQuota(false);
+  };
+
   const fmtTime=(iso)=>{
     if(!iso||iso==='—') return '—';
     try{
@@ -2345,43 +2447,124 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
   };
   const fmtDur=(m)=>{ if(!m||m===0) return '0 min'; if(m<60) return `${m} min`; const h=Math.floor(m/60),r=m%60; return r?`${h}h ${r}m`:`${h}h`; };
 
-  // ── Download CSV of analytics for all users (admin/clientadmin scope) ──────
-  const [downloadingCsv,setDownloadingCsv] = React.useState(false);
-  const downloadAllUsersCsv = async () => {
-    if(downloadingCsv) return;
-    setDownloadingCsv(true);
+  // ── Download user data ZIP (profile + history + feedback + errors) ──────────
+  // JSZip loaded on-demand from CDN — not bundled to keep initial load fast.
+  const [downloadingZip,setDownloadingZip] = React.useState(false);
+
+  const downloadUserZip = async () => {
+    if(downloadingZip) return;
+    setDownloadingZip(true);
     try {
-      const r = await fetch('/api/admin/users', {headers:{'Authorization':`Bearer ${authToken}`}});
-      const d = await r.json();
-      const rows = d.users || [];
-      const cols = [
-        'email','name','role','client','status',
-        'searches_used','searches_limit','searches_remaining','allowed_results',
-        'allowed_sources','allowed_targets','user_creation_limit','direction',
-        'total_time_spent_minutes','created_at','last_login','last_seen','created_by',
-      ];
+      // Load JSZip from CDN on first use
+      if(!window.JSZip) {
+        await new Promise((res,rej)=>{
+          const s=document.createElement('script');
+          s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+          s.onload=res; s.onerror=()=>rej(new Error('JSZip load failed'));
+          document.head.appendChild(s);
+        });
+      }
+
+      const email = user?.email || user?.id || '';
+      const hdr   = {'Authorization':`Bearer ${authToken}`};
+      const stamp = new Date().toISOString().slice(0,10);
+
+      // Fetch history, feedback, errors in parallel with high limit
+      const [histResp, fbResp, errResp] = await Promise.all([
+        fetch(`/api/admin/users/${encodeURIComponent(email)}/history?limit=9999`,  {headers:hdr}),
+        fetch(`/api/admin/users/${encodeURIComponent(email)}/feedback?limit=9999`, {headers:hdr}),
+        fetch(`/api/admin/users/${encodeURIComponent(email)}/errors?limit=9999`,   {headers:hdr}),
+      ]);
+      const histData = histResp.ok ? (await histResp.json()).history || [] : [];
+      const fbData   = fbResp.ok  ? (await fbResp.json()).feedback  || [] : [];
+      const errData  = errResp.ok ? (await errResp.json()).errors    || [] : [];
+
+      // ── CSV builder ───────────────────────────────────────────────────────
       const esc = (v) => {
-        if (v===null||v===undefined) return '';
+        if(v===null||v===undefined) return '';
         const s = Array.isArray(v) ? v.join('|') : String(v);
         return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
       };
-      const csvLines = [cols.join(',')];
-      for (const u of rows) csvLines.push(cols.map(c=>esc(u[c])).join(','));
-      const csvContent = csvLines.join('\n');
-      const blob = new Blob([csvContent], {type:'text/csv;charset=utf-8;'});
+      const toCsv = (cols, rows) => {
+        const lines = [cols.join(',')];
+        for(const r of rows) lines.push(cols.map(c=>esc(r[c])).join(','));
+        return lines.join('\n');
+      };
+
+      // ── profile.csv — from user prop already in memory ───────────────────
+      const profCols = ['email','name','role','client','status','direction',
+        'allowed_results','allowed_sources','allowed_targets',
+        'daily_search_limit','max_users_allowed',
+        'total_time_spent_minutes','created_at','last_login','last_seen','created_by'];
+      const profRow  = {
+        email:      user?.email||user?.id||'',
+        name:       user?.name||'',
+        role:       user?.role||'',
+        client:     user?.client||'',
+        status:     user?.status||'',
+        direction:  user?.dir||'',
+        allowed_results:  user?.allowed_results||'',
+        allowed_sources:  (user?.sources||[]),
+        allowed_targets:  (user?.dbs||[]),
+        daily_search_limit:  user?.limit||0,
+        max_users_allowed:   user?.user_creation_limit??'',
+        total_time_spent_minutes: user?.total_time_spent_minutes||0,
+        created_at:  user?.created_at||'',
+        last_login:  user?.last_login||'',
+        last_seen:   user?.last_seen||'',
+        created_by:  user?.created_by||'',
+      };
+      const profileCsv = toCsv(profCols, [profRow]);
+
+      // ── history.csv — core search columns only ────────────────────────────
+      const histCols = ['timestamp','search_id','src_part','source_mfr',
+        'target_mfrs','top_match','top_score','result_count',
+        'elapsed_s','search_number','weights_customized'];
+      const historyCsv = toCsv(histCols, histData);
+
+      // ── search_weights.csv — only when any row has customized weights ──────
+      const hasWeights = histData.some(r=>r.weights_customized===true||r.weights_customized==='true');
+      let weightsCsv = null;
+      if(hasWeights) {
+        // Collect all w_t2_* and w_t3_* keys present across records
+        const wKeys = new Set();
+        histData.forEach(r=>Object.keys(r).forEach(k=>{ if(k.startsWith('w_t2_')||k.startsWith('w_t3_')) wKeys.add(k); }));
+        const wCols = ['search_id','weights_customized',...Array.from(wKeys).sort()];
+        weightsCsv = toCsv(wCols, histData);
+      }
+
+      // ── feedback.csv ──────────────────────────────────────────────────────
+      const fbCols = ['timestamp','search_id','source_part_number','candidate_part_number','is_good_match'];
+      const feedbackCsv = toCsv(fbCols, fbData);
+
+      // ── errors.csv ────────────────────────────────────────────────────────
+      const errCols = ['timestamp','endpoint','status_code','error_msg'];
+      const errorsCsv = toCsv(errCols, errData);
+
+      // ── Build ZIP ─────────────────────────────────────────────────────────
+      const zip = new window.JSZip();
+      zip.file('profile.csv',  profileCsv);
+      zip.file('history.csv',  historyCsv);
+      if(weightsCsv) zip.file('search_weights.csv', weightsCsv);
+      zip.file('feedback.csv', feedbackCsv);
+      zip.file('errors.csv',   errorsCsv);
+
+      const nameSlug = (user?.name||'user').toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
+      const clientSlug = (user?.client||'').toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'') || 'aqb';
+      const zipName = `encodermatch_${clientSlug}_${nameSlug}_${stamp}.zip`;
+
+      const blob = await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
-      const stamp = new Date().toISOString().slice(0,10);
-      a.href = url;
-      a.download = `encodermatch_users_analytics_${stamp}.csv`;
-      document.body.appendChild(a);
-      a.click();
+      a.href=url; a.download=zipName;
+      document.body.appendChild(a); a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch(_) {
-      // silently fail — button stays clickable for retry
+
+    } catch(err) {
+      console.error('[downloadUserZip]', err);
     }
-    setDownloadingCsv(false);
+    setDownloadingZip(false);
   };
 
   const scCfg={active:{bg:dark?'#14532d':'#dcfce7',text:dark?'#4ade80':'#15803d'},locked:{bg:dark?'#450a0a':'#fee2e2',text:dark?'#f87171':'#b91c1c'},invited:{bg:dark?'#1e3a5f':'#dbeafe',text:dark?'#60a5fa':'#1e40af'}};
@@ -2655,22 +2838,22 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
         </button>
         <span style={{color:textMut,fontSize:13}}>›</span>
         <span style={{fontSize:13,color:textSec,fontWeight:500}}>{user?.name||user?.email||'—'}</span>
-        <button onClick={downloadAllUsersCsv} disabled={downloadingCsv} title="Download analytics CSV for all users"
+        <button onClick={downloadUserZip} disabled={downloadingZip} title="Download this user's data as a ZIP archive"
           style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:6,
-            border:`1px solid ${border}`,background:cardBg,cursor:downloadingCsv?'default':'pointer',
+            border:`1px solid ${border}`,background:cardBg,cursor:downloadingZip?'default':'pointer',
             color:textSec,fontFamily:'IBM Plex Sans, sans-serif',fontSize:12.5,fontWeight:600,
-            opacity:downloadingCsv?0.6:1}}
-          onMouseEnter={e=>{if(!downloadingCsv)e.currentTarget.style.borderColor=dark?'#475569':'#cbd5e1';}}
+            opacity:downloadingZip?0.6:1}}
+          onMouseEnter={e=>{if(!downloadingZip)e.currentTarget.style.borderColor=dark?'#475569':'#cbd5e1';}}
           onMouseLeave={e=>{e.currentTarget.style.borderColor=border;}}>
           <svg width={13} height={13} viewBox="0 0 14 14" fill="none"><path d="M7 1v8M3.5 6L7 9.5 10.5 6M2 12h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          {downloadingCsv?'Preparing…':'Download All Users CSV'}
+          {downloadingZip?'Preparing…':'Download User Data'}
         </button>
       </div>
 
       {/* Page header */}
-      <div style={{display:'flex',alignItems:'flex-start',gap:14,marginBottom:24}}>
-        <div style={{width:52,height:52,borderRadius:isClientAdmin?10:'50%',flexShrink:0,
-          background:isClientAdmin?'linear-gradient(135deg,#7c3aed,#a78bfa)':'linear-gradient(135deg,#1855d4,#3b82f6)',
+      <div style={{display:'flex',alignItems:'flex-start',gap:14,marginBottom:20}}>
+        <div style={{width:52,height:52,borderRadius:rc.shape,flexShrink:0,
+          background:rc.grd,
           display:'flex',alignItems:'center',justifyContent:'center',
           fontSize:17,fontWeight:700,color:'white',letterSpacing:'0.04em'}}>
           {(user?.name||'?').split(' ').map(p=>p[0]).join('').toUpperCase().slice(0,2)}
@@ -2680,8 +2863,8 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
             <h1 style={{margin:0,fontSize:20,fontWeight:700,color:textPri,letterSpacing:'-0.02em'}}>{user?.name}</h1>
             <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,background:sc.bg,color:sc.text,textTransform:'capitalize'}}>{user?.status}</span>
             <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,
-              background:isClientAdmin?(dark?'#2d1b69':'#ede9fe'):(dark?'#1e3a5f':'#dbeafe'),
-              color:isClientAdmin?(dark?'#a78bfa':'#7c3aed'):(dark?'#60a5fa':'#1e40af')}}>
+              background:dark?rc.bgDark:rc.bg,
+              color:dark?rc.priDark:rc.pri}}>
               {roleLabel}
             </span>
           </div>
@@ -2690,19 +2873,21 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
         </div>
       </div>
 
-      {/* Two-column: main tabs + sticky identity card */}
+      {/* Tab bar — sits ABOVE the two-column flex so sticky card aligns with first stat row */}
+      <div style={{display:'flex',gap:4,background:dark?'#0f172a':'#f1f5f9',padding:4,borderRadius:8,width:'fit-content',marginBottom:18,border:`1px solid ${border}`}}>
+        {['overview','activity','account','feedback','errors'].map(t=>(
+          <button key={t} style={tabStyle(t)} onClick={()=>setTab(t)}>
+            {t.charAt(0).toUpperCase()+t.slice(1)}
+            {t==='errors'&&errors.length>0&&<span style={{marginLeft:5,fontSize:10,fontWeight:700,padding:'1px 5px',borderRadius:10,background:'#dc2626',color:'white'}}>{errors.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* Two-column: tab content + sticky identity card */}
       <div style={{display:'flex',gap:20,alignItems:'flex-start'}}>
 
-        {/* Main area */}
+        {/* Main content area — no tab bar here, it's above */}
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:'flex',gap:4,background:dark?'#0f172a':'#f1f5f9',padding:4,borderRadius:8,width:'fit-content',marginBottom:18,border:`1px solid ${border}`}}>
-            {['overview','activity','account','feedback','errors'].map(t=>(
-              <button key={t} style={tabStyle(t)} onClick={()=>setTab(t)}>
-                {t.charAt(0).toUpperCase()+t.slice(1)}
-                {t==='errors'&&errors.length>0&&<span style={{marginLeft:5,fontSize:10,fontWeight:700,padding:'1px 5px',borderRadius:10,background:'#dc2626',color:'white'}}>{errors.length}</span>}
-              </button>
-            ))}
-          </div>
           {tab==='overview' &&<OverviewTab/>}
           {tab==='activity' &&<ActivityTab/>}
           {tab==='account'  &&<AccountTab/>}
@@ -2710,13 +2895,13 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
           {tab==='errors'   &&<ErrorsTab/>}
         </div>
 
-        {/* Sticky identity card */}
+        {/* Sticky identity card — top:0 now aligns with first stat row */}
         <div style={{width:230,flexShrink:0,position:'sticky',top:0}}>
-          <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,padding:'16px 14px',display:'flex',flexDirection:'column',gap:12}}>
+          <div style={{background:cardBg,border:`1px solid ${dark?rc.bdrDark:rc.bdr}`,borderRadius:10,padding:'16px 14px',display:'flex',flexDirection:'column',gap:12}}>
             {/* Mini avatar + name */}
             <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <div style={{width:34,height:34,borderRadius:isClientAdmin?7:'50%',flexShrink:0,
-                background:isClientAdmin?'linear-gradient(135deg,#7c3aed,#a78bfa)':'linear-gradient(135deg,#1855d4,#3b82f6)',
+              <div style={{width:34,height:34,borderRadius:rc.shape,flexShrink:0,
+                background:rc.grd,
                 display:'flex',alignItems:'center',justifyContent:'center',
                 fontSize:11,fontWeight:700,color:'white'}}>
                 {(user?.name||'?').split(' ').map(p=>p[0]).join('').toUpperCase().slice(0,2)}
@@ -2735,18 +2920,47 @@ function UserDetailPage({ user, dark, authToken, onBack }) {
               </div>
             ))}
             <div style={{height:1,background:border}}/>
-            {/* Limit adjuster */}
+            {/* Limit adjuster — superadmin only; read-only for clientadmin */}
             <div>
               <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:textMut,marginBottom:8}}>Daily Search Limit</div>
-              <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:6}}>
-                <button onClick={()=>adjustLimit(-1)} disabled={updatingLimit||limitVal<=0} style={{width:24,height:24,border:`1px solid ${border}`,borderRadius:4,background:'transparent',cursor:(updatingLimit||limitVal<=0)?'default':'pointer',color:textMut,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>−</button>
-                <span style={{flex:1,textAlign:'center',fontSize:16,fontWeight:700,color:limitChanged?(dark?'#60a5fa':'#1855d4'):textPri,fontVariantNumeric:'tabular-nums'}}>{limitVal}</span>
-                <button onClick={()=>adjustLimit(1)} disabled={updatingLimit} style={{width:24,height:24,border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,borderRadius:4,background:dark?'#0f1f3d':'#eff6ff',cursor:updatingLimit?'default':'pointer',color:dark?'#60a5fa':'#1a3570',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>+</button>
-              </div>
-              <button onClick={applyLimit} disabled={!limitChanged||updatingLimit} style={{width:'100%',padding:'6px',borderRadius:5,border:'none',background:limitChanged&&!updatingLimit?'#1a3570':(dark?'#1e293b':'#e2e8f0'),color:limitChanged&&!updatingLimit?'white':(dark?'#475569':'#94a3b8'),cursor:limitChanged&&!updatingLimit?'pointer':'default',fontFamily:'IBM Plex Sans, sans-serif',fontSize:12,fontWeight:600,transition:'all 0.15s'}}>
-                {updatingLimit?'Saving…':'Apply'}
-              </button>
+              {viewerRole==='clientadmin'
+                ? (
+                  <div>
+                    <div style={{textAlign:'center',fontSize:16,fontWeight:700,color:textPri,fontVariantNumeric:'tabular-nums',marginBottom:6}}>{limitVal}</div>
+                    <div style={{fontSize:10.5,color:textMut,textAlign:'center',lineHeight:1.4}}>Managed by AQB Solutions</div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:6}}>
+                      <button onClick={()=>adjustLimit(-1)} disabled={updatingLimit||limitVal<=0} style={{width:24,height:24,border:`1px solid ${border}`,borderRadius:4,background:'transparent',cursor:(updatingLimit||limitVal<=0)?'default':'pointer',color:textMut,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>−</button>
+                      <span style={{flex:1,textAlign:'center',fontSize:16,fontWeight:700,color:limitChanged?(dark?'#60a5fa':'#1855d4'):textPri,fontVariantNumeric:'tabular-nums'}}>{limitVal}</span>
+                      <button onClick={()=>adjustLimit(1)} disabled={updatingLimit} style={{width:24,height:24,border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,borderRadius:4,background:dark?'#0f1f3d':'#eff6ff',cursor:updatingLimit?'default':'pointer',color:dark?'#60a5fa':'#1a3570',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>+</button>
+                    </div>
+                    <button onClick={applyLimit} disabled={!limitChanged||updatingLimit} style={{width:'100%',padding:'6px',borderRadius:5,border:'none',background:limitChanged&&!updatingLimit?'#1a3570':(dark?'#1e293b':'#e2e8f0'),color:limitChanged&&!updatingLimit?'white':(dark?'#475569':'#94a3b8'),cursor:limitChanged&&!updatingLimit?'pointer':'default',fontFamily:'IBM Plex Sans, sans-serif',fontSize:12,fontWeight:600,transition:'all 0.15s'}}>
+                      {updatingLimit?'Saving…':'Apply'}
+                    </button>
+                  </>
+                )
+              }
             </div>
+
+            {/* User creation limit adjuster — superadmin only, clientadmin users only */}
+            {isClientAdmin && viewerRole==='superadmin' && userQuotaVal!=null && (
+              <>
+                <div style={{height:1,background:border}}/>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:textMut,marginBottom:8}}>Max Users Allowed</div>
+                  <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:6}}>
+                    <button onClick={()=>adjustQuota(-1)} disabled={updatingQuota||userQuotaVal<=1} style={{width:24,height:24,border:`1px solid ${border}`,borderRadius:4,background:'transparent',cursor:(updatingQuota||userQuotaVal<=1)?'default':'pointer',color:textMut,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>−</button>
+                    <span style={{flex:1,textAlign:'center',fontSize:16,fontWeight:700,color:quotaChanged?(dark?'#a78bfa':'#7c3aed'):textPri,fontVariantNumeric:'tabular-nums'}}>{userQuotaVal}</span>
+                    <button onClick={()=>adjustQuota(1)} disabled={updatingQuota} style={{width:24,height:24,border:`1px solid ${dark?'#4c1d95':'#ddd6fe'}`,borderRadius:4,background:dark?'#1a0f33':'#f5f3ff',cursor:updatingQuota?'default':'pointer',color:dark?'#a78bfa':'#7c3aed',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>+</button>
+                  </div>
+                  <button onClick={applyUserQuota} disabled={!quotaChanged||updatingQuota} style={{width:'100%',padding:'6px',borderRadius:5,border:'none',background:quotaChanged&&!updatingQuota?'#7c3aed':(dark?'#1e293b':'#e2e8f0'),color:quotaChanged&&!updatingQuota?'white':(dark?'#475569':'#94a3b8'),cursor:quotaChanged&&!updatingQuota?'pointer':'default',fontFamily:'IBM Plex Sans, sans-serif',fontSize:12,fontWeight:600,transition:'all 0.15s'}}>
+                    {updatingQuota?'Saving…':'Apply'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -3732,7 +3946,8 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
         sources:(u.allowed_sources||[]), dbs:(u.allowed_targets||[]),
         client:u.client||'', dir:u.direction||'source_only',
         status:u.status||'active', last:u.last_search_date||'—',
-        last_login:u.last_login||'', created_at:u.created_at||'',
+        last_login:u.last_login||'', last_seen:u.last_seen||'', created_at:u.created_at||'',
+        allowed_results:u.allowed_results||10,
         total_time_spent_minutes:u.total_time_spent_minutes||0,
         created_by:u.created_by||u.admin_email||'',
         user_creation_limit:u.user_creation_limit??null,
@@ -4431,6 +4646,17 @@ function App() {
     <>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes pageSlideFwd{from{opacity:0;transform:translateX(18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes pageSlideBack{from{opacity:0;transform:translateX(-18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}`}</style>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+      {/* Top-right dark/light toggle — same style as main app header */}
+      <div style={{position:'fixed',top:12,right:16,zIndex:300}}>
+        <button
+          onClick={()=>setTweak('colorMode',dark?'light':'dark')}
+          title={dark?'Switch to light mode':'Switch to dark mode'}
+          style={{width:36,height:36,borderRadius:7,background:dark?'#1e293b':'rgba(255,255,255,0.9)',border:`1px solid ${dark?'#334155':'#e2e8f0'}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:dark?'#94a3b8':'#64748b',boxShadow:'0 1px 4px rgba(0,0,0,0.1)'}}
+          onMouseEnter={e=>{e.currentTarget.style.background=dark?'#334155':'#ffffff';}}
+          onMouseLeave={e=>{e.currentTarget.style.background=dark?'#1e293b':'rgba(255,255,255,0.9)';}}>
+          <svg width={17} height={17} viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.3"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+        </button>
+      </div>
       {sessionMsg&&(
         <div style={{position:'fixed',top:0,left:0,right:0,zIndex:9999,background:'#1e3a5f',color:'#e2e8f0',padding:'11px 20px',fontSize:13,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center',gap:10,boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}}>
           <svg width={14} height={14} viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#60a5fa" strokeWidth="1.3"/><path d="M7 4v3.5M7 9.5v.5" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round"/></svg>
@@ -4444,9 +4670,6 @@ function App() {
           : <ProductSelectorPage dark={dark} user={baseUser} onSelect={(dest)=>setPage(dest)}/>
         }
       </div>
-      <TweaksPanel tweaks={tweaks} setTweak={setTweak}>
-        <TweakSection title="Appearance"><TweakRadio id="colorMode" label="Mode" options={[{value:'light',label:'Light'},{value:'dark',label:'Dark'}]} tweaks={tweaks} setTweak={setTweak}/></TweakSection>
-      </TweaksPanel>
     </>
   );
 
@@ -4507,7 +4730,7 @@ function App() {
             {page==='history'&&<HistoryPage user={baseUser} onRerun={()=>setPage('search')} dark={dark} authToken={authToken}/>}
             {page==='weights'&&<WeightsPage dark={dark} t2Raw={t2Raw} t3Raw={t3Raw} setT2Raw={setT2Raw} setT3Raw={setT3Raw}/>}
             {page==='admin'&&<AdminPage dark={dark} authToken={authToken} mfrs={mfrs} mfrIds={mfrIds} mfrLabel={mfrLabel} onMfrsUpdate={setMfrs} user={baseUser} onNavigateToUser={handleNavigateToUser}/>}
-            {page==='userDetail'&&<UserDetailPage key={selectedDetailUser?.email} user={selectedDetailUser} dark={dark} authToken={authToken} onBack={()=>setPage('admin')}/>}
+            {page==='userDetail'&&<UserDetailPage key={selectedDetailUser?.email} user={selectedDetailUser} dark={dark} authToken={authToken} onBack={()=>setPage('admin')} viewerRole={baseUser?.role}/>}
           </div>
         </div>
       </div>
