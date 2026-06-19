@@ -41,21 +41,12 @@
     },
     {
       "field":       "connection_type_canonical",
-      "rule":        "forbidden_pairs",
-      "params":      {
-        "pairs": [
-          ["M12",    "MS/MIL"], ["MS/MIL", "M12"   ],
-          ["M12",    "DSub"  ], ["DSub",   "M12"    ],
-          ["M23",    "MS/MIL"], ["MS/MIL", "M23"    ],
-          ["M23",    "DSub"  ], ["DSub",   "M23"    ],
-          ["MS/MIL", "DSub"  ], ["DSub",   "MS/MIL" ]
-        ]
-      },
-      "description": "Physically incompatible connector types — no standard adapter available. cable is excluded from all pairs since cable variants can always be terminated into any connector. Skipped when either side is unknown (both-known condition via forbidden_pairs behaviour)."
+      "rule":        "exact_match_except_cable",
+      "description": "Non-cable connector types must match exactly — M12 cannot physically mate with M23, MS/MIL, DSub, etc. Skipped when source is cable (all candidates pass T1; cable is scored in T2 via matrix) or when either side is empty/unknown. Cable candidates also pass T1 and are handled by T2 soft scoring (cable can be field-terminated into any connector)."
     }
   ],
 
-  "_tier2_note": "Near-hard physical parameters. High weight. Weights must sum to 1.0. connection_type_canonical elevated from T3 to T2 — connector mismatch requires hardware change and is a strong compatibility signal.",
+  "_tier2_note": "Near-hard physical parameters. High weight. Weights must sum to 1.0. connection_type_canonical has a dual role: non-cable connector mismatches are T1 hard stops (exact_match_except_cable rule); cable-involved cases fall through to T2 at 0.15 weight via conn_compat_matrix.",
 
   "tier2": {
     "cpr_values": {
@@ -72,7 +63,7 @@
     "connection_type_canonical": {
       "weight":      0.15,
       "method":      "conn_compat_matrix",
-      "description": "Connector type compatibility. Exact match=1.0. Similar form factor (M12↔M23)=0.5. Adapter possible but non-trivial=0.3. Default for unlisted pairs=0.1."
+      "description": "Cable-conditional T2 scoring. Applies only when source or candidate uses a cable exit — cable can be field-terminated into any connector, so partial compatibility scores via matrix (cable→M12=0.3, cable→cable=1.0). When both sides are specific connector types (M12, M23, etc.), connection type is handled by T1 exact-match — the T2 score is redistributed to other fields to preserve discriminating power among T1-surviving candidates."
     },
     "output_circuit_canonical": {
       "weight":      0.15,

@@ -487,19 +487,25 @@ function TierDivider({ label, score, dark=false, isT1=false }) {
   );
 }
 
-function LoadingSpinner({ part, dark=false }) {
+function LoadingSpinner({ part, dark=false, totalCount=null }) {
+  const countLabel = totalCount && totalCount > 0
+    ? `${(totalCount/1e6).toFixed(2)}M+`
+    : '1.65M+';
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'80px 0',gap:20}}>
       <div style={{width:40,height:40,border:`3px solid ${dark?'#334155':'#e2e8f0'}`,borderTopColor:'#1855d4',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
       <div style={{textAlign:'center'}}>
         <div style={{fontSize:14,fontWeight:600,color:dark?'#e2e8f0':'#111827',marginBottom:4}}>Matching {part}</div>
-        <div style={{fontSize:12.5,color:dark?'#64748b':'#94a3b8'}}>Scoring against 1.45M+ encoder variants…</div>
+        <div style={{fontSize:12.5,color:dark?'#64748b':'#94a3b8'}}>Scoring against {countLabel} encoder variants…</div>
       </div>
     </div>
   );
 }
 
-function EmptyState({ dark=false }) {
+function EmptyState({ dark=false, totalCount=null }) {
+  const countLabel = totalCount && totalCount > 0
+    ? `${(totalCount/1e6).toFixed(2)}M+`
+    : '1.65M+';
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'80px 0',gap:12}}>
       <svg width={48} height={48} viewBox="0 0 48 48" fill="none">
@@ -513,7 +519,7 @@ function EmptyState({ dark=false }) {
       </svg>
       <div style={{textAlign:'center'}}>
         <div style={{fontSize:15,fontWeight:600,color:dark?'#94a3b8':'#64748b',marginBottom:4}}>Enter a part number to begin</div>
-        <div style={{fontSize:12.5,color:dark?'#475569':'#94a3b8'}}>Cross-reference against 1.45M+ encoder variants</div>
+        <div style={{fontSize:12.5,color:dark?'#475569':'#94a3b8'}}>Cross-reference against {countLabel} encoder variants</div>
       </div>
     </div>
   );
@@ -981,7 +987,7 @@ function LoginPage({ onLogin, dark }) {
           <h1 style={{margin:'0 0 16px',fontSize:34,fontWeight:700,color:'#ffffff',letterSpacing:'-0.03em',lineHeight:1.2}}>AI-powered hardware<br/>cross-reference</h1>
           <p style={{margin:'0 0 40px',fontSize:14.5,color:'rgba(255,255,255,0.55)',lineHeight:1.65,maxWidth:320}}>Find compatible replacement components from 1.65M+ variants across leading manufacturer catalogues — ranked by field-by-field compatibility score.</p>
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {[{icon:'⚡',text:'Typically 2–5 seconds per search'},{icon:'🎯',text:'Two-tier scoring — physical fit weighted 70%, secondary specs 30%'},{icon:'🔒',text:'Role-based access — each user sees only their licensed catalogue'}].map(f=>(
+            {[{icon:'⚡',text:'Typically 2–5 seconds per search'},{icon:'🎯',text:'Three-tier compatibility engine with AI-powered match explanations'},{icon:'🔒',text:'Role-based access — each user sees only their licensed catalogue'}].map(f=>(
               <div key={f.text} style={{display:'flex',alignItems:'center',gap:10}}>
                 <div style={{width:28,height:28,borderRadius:7,flexShrink:0,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13}}>{f.icon}</div>
                 <span style={{fontSize:13,color:'rgba(255,255,255,0.65)'}}>{f.text}</span>
@@ -1485,7 +1491,7 @@ function normalizeWeights(raw) {
 }
 
 // ── SearchPanel ─────────────────────────────────────────────────────────────
-function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToken, mfrIds, mfrLabel }) {
+function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToken, mfrIds, mfrLabel, replayParams, setReplayParams }) {
   const isAdmin=user.role==='superadmin';
   const [partNum,setPartNum]=React.useState('');
   const [source,setSource]=React.useState(()=>isAdmin?'kubler':(user.allowed_sources||['kubler'])[0]||'kubler');
@@ -1506,6 +1512,34 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
   // Flags to prevent loops: skip first source render + skip detect-triggered source changes
   const isFirstSourceEffect=React.useRef(true);
   const skipNextSourceEffect=React.useRef(false);
+
+  // ── History replay — pre-fill panel from a history row ──────────────────────
+  // Triggered when user clicks a row in the Search History page.
+  // Sets part number, source, and targets without auto-submitting — user must
+  // click Find Replacements manually. Clears replayParams after applying so
+  // stale params don't persist across subsequent navigations.
+  React.useEffect(()=>{
+    if(!replayParams) return;
+    const {partNum:rp, sourceMfr:rm, targets:rt} = replayParams;
+    if(rp) setPartNum(rp);
+    if(rm) {
+      skipNextSourceEffect.current = true;
+      sourceRef.current = rm;
+      setSource(rm);
+    }
+    if(rt && rt.length > 0) {
+      const tgtSet = new Set(rt);
+      const targetIds = isAdmin ? mfrIds : (user.allowed_targets||[]);
+      setTargets(Object.fromEntries(
+        targetIds.map(m=>[m, tgtSet.has(m) && m !== (rm||source)])
+      ));
+    }
+    // Mark part as recognized using the source_mfr from history — bypasses
+    // the "Code not recognized" guard in handleSearch without firing detect.
+    if(rm) setDetectedMfr(rm);
+    // Clear replay params so they don't re-apply on future SearchPanel mounts
+    if(setReplayParams) setReplayParams(null);
+  },[replayParams]); // eslint-disable-line — intentional: only fire on new replay
 
   const runDetect=React.useCallback(async(val)=>{
     if(!val.trim()||!authToken) return;
@@ -1683,7 +1717,8 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
   searchState, setSearchState, expandedCards, setExpandedCards, explainCacheRef,
   searchError, setSearchError, lastPartNum, setLastPartNum,
   lastTopN, setLastTopN, lastElapsed, setLastElapsed,
-  connectionType, setConnectionType }) {
+  connectionType, setConnectionType,
+  replayParams, setReplayParams }) {
 
   const displayResults = (API_MODE==='live'&&liveResults) ? liveResults : MOCK_DATA.results;
   const displaySource  = (API_MODE==='live'&&liveSource)  ? liveSource  : MOCK_DATA.source;
@@ -1795,10 +1830,16 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
   const toggleCard=(rank)=>setExpandedCards(s=>({...s,[rank]:!s[rank]}));
   const bg=dark?'#0a0f1a':'#f4f6fa', textSec=dark?'#64748b':'#94a3b8';
   const errorBg=dark?'#450a0a':'#fef2f2', errorBorder=dark?'#7f1d1d':'#fecaca';
+  // Total Silver rows — computed from mfrs array fetched at login.
+  // Auto-updates on Silver refresh without code changes.
+  const totalCount = React.useMemo(
+    () => (mfrs||[]).reduce((s,m)=>s+(m.count||0), 0),
+    [mfrs]
+  );
 
   return (
     <div style={{display:'flex',flex:1,overflow:'hidden'}}>
-      <SearchPanel onSearch={handleSearch} user={user} searchState={searchState} dark={dark} t2Raw={t2Raw} t3Raw={t3Raw} authToken={authToken} mfrIds={mfrIds} mfrLabel={mfrLabel}/>
+      <SearchPanel onSearch={handleSearch} user={user} searchState={searchState} dark={dark} t2Raw={t2Raw} t3Raw={t3Raw} authToken={authToken} mfrIds={mfrIds} mfrLabel={mfrLabel} replayParams={replayParams} setReplayParams={setReplayParams}/>
       <div style={{flex:1,background:bg,overflowY:'auto',padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}}>
         {searchError&&(
           <div style={{background:errorBg,border:`1px solid ${errorBorder}`,borderRadius:8,padding:'12px 16px',fontSize:13,color:dark?'#fca5a5':'#b91c1c',display:'flex',alignItems:'center',gap:8}}>
@@ -1807,8 +1848,8 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
           </div>
         )}
         {searchState!=='idle'&&<SourceCard source={displaySource} resultCount={searchState==='results'?displayResults.length:null} dark={dark}/>}
-        {searchState==='idle'&&!searchError&&<EmptyState dark={dark}/>}
-        {searchState==='loading'&&<LoadingSpinner part={lastPartNum||displaySource.part_number} dark={dark}/>}
+        {searchState==='idle'&&!searchError&&<EmptyState dark={dark} totalCount={totalCount}/>}
+        {searchState==='loading'&&<LoadingSpinner part={lastPartNum||displaySource.part_number} dark={dark} totalCount={totalCount}/>}
         {searchState==='results'&&displayResults.length===0&&(
           <NoMatchBanner reasons={noMatchReasons} dark={dark}/>
         )}
@@ -1898,6 +1939,7 @@ function HistoryPage({ user, onRerun, dark, authToken }) {
         id: i+1,
         ts: (r.timestamp||'').slice(0,16).replace('T',' '),
         src_part: r.src_part||'',
+        source_mfr: r.source_mfr||'',
         targets: r.target_mfrs||[],
         top_match: r.top_match||'—',
         top_score: parseFloat(r.top_score||0),
@@ -1954,7 +1996,7 @@ function HistoryPage({ user, onRerun, dark, authToken }) {
           );
         })}
       </div>
-      <p style={{fontSize:11.5,color:textMut,margin:'12px 0 0',textAlign:'center'}}>Click any row to re-run the search · History retained for 90 days</p>
+      <p style={{fontSize:11.5,color:textMut,margin:'12px 0 0',textAlign:'center'}}>Click any row to pre-fill the search · History retained for 90 days</p>
     </div>
   );
 }
@@ -2384,8 +2426,10 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
       .finally(()=>setLoadingH(false));
   },[tab,user,authToken]);
 
+  // Fetch errors on mount (overview) so the badge count is available immediately,
+  // and again if the user explicitly opens the Errors tab.
   React.useEffect(()=>{
-    if(tab!=='errors'||!user||!authToken) return;
+    if((tab!=='errors'&&tab!=='overview')||!user||!authToken) return;
     setLoadingE(true);
     fetch(`/api/admin/users/${encodeURIComponent(user.email)}/errors?limit=50`,
       {headers:{'Authorization':`Bearer ${authToken}`}})
@@ -2818,7 +2862,7 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
       <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden'}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
           <thead><tr style={{background:dark?'#0f172a':'#f8fafc'}}>{['Time','Endpoint','Status','Error'].map(h=><th key={h} style={{padding:'8px 14px',textAlign:'left',fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:textMut,borderBottom:`1px solid ${border}`,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
-          <tbody>{errors.map((e,i)=>(<tr key={i} style={{borderBottom:i<errors.length-1?`1px solid ${border}`:'none'}}><td style={{padding:'9px 14px',color:textSec,whiteSpace:'nowrap'}}>{fmtTime(e.timestamp)}</td><td style={{padding:'9px 14px',fontFamily:'IBM Plex Mono, monospace',fontSize:11.5,color:textPri}}>{e.endpoint||'—'}</td><td style={{padding:'9px 14px'}}><span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:4,background:parseInt(e.status_code)>=500?(dark?'#450a0a':'#fee2e2'):(dark?'#431407':'#fff7ed'),color:parseInt(e.status_code)>=500?(dark?'#f87171':'#b91c1c'):(dark?'#fb923c':'#c2410c')}}>{e.status_code}</span></td><td style={{padding:'9px 14px',color:textSec,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={e.error_msg}>{e.error_msg||'—'}</td></tr>))}</tbody>
+          <tbody>{errors.map((e,i)=>(<tr key={i} style={{borderBottom:i<errors.length-1?`1px solid ${border}`:'none'}}><td style={{padding:'9px 14px',color:textSec,whiteSpace:'nowrap'}}>{fmtTime(e.timestamp)}</td><td style={{padding:'9px 14px',fontFamily:'IBM Plex Mono, monospace',fontSize:11.5,color:textPri}}>{e.endpoint||'—'}</td><td style={{padding:'9px 14px'}}><span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:4,background:parseInt(e.status_code)>=500?(dark?'#450a0a':'#fee2e2'):(dark?'#431407':'#fff7ed'),color:parseInt(e.status_code)>=500?(dark?'#f87171':'#b91c1c'):(dark?'#fb923c':'#c2410c')}}>{e.status_code}</span></td><td style={{padding:'9px 14px',color:textSec,maxWidth:300,wordBreak:'break-word',whiteSpace:'normal'}} title={e.error_msg}>{e.error_msg||'—'}</td></tr>))}</tbody>
         </table>
       </div>
     );
@@ -3004,9 +3048,10 @@ function UserDetailPanel({ user, dark, authToken, onClose, onLimitChange }) {
       .finally(()=>setLoadingH(false));
   },[tab,user,authToken]);
 
-  // Fetch errors when tab switches to errors
+  // Fetch errors on mount (overview) so the badge count is available immediately,
+  // and again if the user explicitly opens the Errors tab.
   React.useEffect(()=>{
-    if(tab!=='errors'||!user||!authToken) return;
+    if((tab!=='errors'&&tab!=='overview')||!user||!authToken) return;
     setLoadingE(true);
     fetch(`/api/admin/users/${encodeURIComponent(user.email)}/errors?limit=50`,
       {headers:{'Authorization':`Bearer ${authToken}`}})
@@ -4268,6 +4313,7 @@ function WeightsPage({ dark, t2Raw, t3Raw, setT2Raw, setT3Raw }) {
             {label:'Shaft Type',             rule:'Exact Match'},
             {label:'Bore Diameter (Hollow)', rule:'Exact Match'},
             {label:'Output Voltage Class',   rule:'Forbidden Pairs'},
+            {label:'Connection Type (non-cable)', rule:'Exact Match'},
           ].map(({label,rule})=>(
             <div key={label} style={{display:'flex',alignItems:'center',gap:10,marginBottom:12,
               padding:'8px 12px',borderRadius:6,background:dark?'#0f172a':'#f8fafc',
@@ -4335,6 +4381,11 @@ function WeightsPage({ dark, t2Raw, t3Raw, setT2Raw, setT3Raw }) {
                   rule:'No TTL ↔ HTL/Universal cross',
                   detail:'5 V (TTL) logic driving 24 V circuitry causes immediate signal failure. Push-Pull (Universal) and TTL are treated as incompatible voltage classes.',
                 },
+                {
+                  field:'Connection Type (non-cable)',
+                  rule:'Exact match — cable exempt',
+                  detail:'When both source and candidate use a specific connector type (M12, M23, MS/MIL, etc.), types must match exactly — mismatched connectors cannot physically mate. Cable connections on either side are exempt from this hard stop and are scored in T2 instead (cable can be field-terminated into any connector).',
+                },
               ].map(({field,rule,detail})=>(
                 <div key={field} style={{background:dark?'#1a0a0a':'#fff8f8',border:`1px solid ${dark?'#3b1f1f':'#fecaca'}`,borderRadius:7,padding:'10px 14px'}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
@@ -4369,7 +4420,7 @@ function WeightsPage({ dark, t2Raw, t3Raw, setT2Raw, setT3Raw }) {
                 {[
                   {label:'IP Rating', note:'Candidate IP ≥ source IP = 100%. Candidate IP < source IP = penalised proportionally. A candidate rated IP67 replacing an IP65 source loses nothing on this field.'},
                   {label:'PPR Coverage', note:'Recall-based: score = source PPR values the candidate can cover ÷ total source PPR values. Candidate covering all source values = 100%. Missing even one reduces this score.'},
-                  {label:'Connection Type', note:'Directional preference — same canonical type scores highest. Different type is penalised, but unlike T1 it does not disqualify.'},
+                  {label:'Connection Type (cable)', note:'Applies only when source or candidate uses a cable exit — cable can be field-terminated into any connector, so partial scores apply (cable→cable=100%, cable→M12/M23=30%). When both sides are specific connectors, connection type is enforced as a T1 hard stop above.'},
                 ].map(({label,note})=>(
                   <div key={label} style={{display:'flex',gap:10,background:dark?'#0f1f3d':'#eff6ff',border:`1px solid ${dark?'#1e3a5f':'#bfdbfe'}`,borderRadius:6,padding:'8px 12px'}}>
                     <div style={{minWidth:110,fontSize:12,fontWeight:600,color:dark?'#60a5fa':'#1855d4',flexShrink:0}}>{label}</div>
@@ -4582,6 +4633,9 @@ function App() {
   const [lastElapsed,setLastElapsed]=React.useState(null);
   const [connectionType,setConnectionType]=React.useState(null);
   const [sidebarCollapsed,setSidebarCollapsed]=React.useState(false);
+  // Replay params — set when user clicks a history row to pre-fill the search panel.
+  // Cleared by SearchPanel after applying so stale params don't persist.
+  const [replayParams,setReplayParams]=React.useState(null);
 
   // Clear all search state when a new user logs in — prevents stale results
   // from a previous session being visible to the next user on the same browser tab.
@@ -4590,6 +4644,7 @@ function App() {
     setSearchState('idle'); setExpandedCards({});
     setSearchError(null); setLastPartNum('');
     setLastTopN(5); setLastElapsed(null); setConnectionType(null);
+    setReplayParams(null);
   },[]);
 
   const handleLogout=React.useCallback((msg='')=>{
@@ -4620,11 +4675,13 @@ function App() {
       setAuthToken(token);
       setLiveUser(userData);
       setLoggedInRole(userData.role);
-      setPage('selector');
+      // Only superadmin sees the product selector (Encoders / Valves).
+      // Client admins and end users go directly to the search tool.
+      setPage(userData.role === 'superadmin' ? 'selector' : 'search');
     } else {
       setLoggedInRole(role);
       setTweak('userRole',role);
-      setPage('selector');
+      setPage(role === 'superadmin' ? 'selector' : 'search');
     }
   };
 
@@ -4726,8 +4783,12 @@ function App() {
               lastTopN={lastTopN} setLastTopN={setLastTopN}
               lastElapsed={lastElapsed} setLastElapsed={setLastElapsed}
               connectionType={connectionType} setConnectionType={setConnectionType}
+              replayParams={replayParams} setReplayParams={setReplayParams}
             />}
-            {page==='history'&&<HistoryPage user={baseUser} onRerun={()=>setPage('search')} dark={dark} authToken={authToken}/>}
+            {page==='history'&&<HistoryPage user={baseUser} onRerun={(row)=>{
+              setReplayParams({partNum:row.src_part,sourceMfr:row.source_mfr,targets:row.targets});
+              setPage('search');
+            }} dark={dark} authToken={authToken}/>}
             {page==='weights'&&<WeightsPage dark={dark} t2Raw={t2Raw} t3Raw={t3Raw} setT2Raw={setT2Raw} setT3Raw={setT3Raw}/>}
             {page==='admin'&&<AdminPage dark={dark} authToken={authToken} mfrs={mfrs} mfrIds={mfrIds} mfrLabel={mfrLabel} onMfrsUpdate={setMfrs} user={baseUser} onNavigateToUser={handleNavigateToUser}/>}
             {page==='userDetail'&&<UserDetailPage key={selectedDetailUser?.email} user={selectedDetailUser} dark={dark} authToken={authToken} onBack={()=>setPage('admin')} viewerRole={baseUser?.role}/>}

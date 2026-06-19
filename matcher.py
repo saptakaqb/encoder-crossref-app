@@ -278,10 +278,48 @@ def _t1_forbidden_pairs(src: dict, cand_df: pd.DataFrame, rule: dict) -> pd.Seri
     return ~cand_df[field].astype(str).str.strip().isin(forbidden_cand_vals)
 
 
+def _t1_exact_match_except_cable(src: dict, cand_df: pd.DataFrame, rule: dict) -> pd.Series:
+    """
+    Exact-match T1 for connector type, with cable exempt from the hard stop.
+
+    Decision matrix:
+      source=cable   → skip T1 entirely (all candidates pass; T2 matrix scores them)
+      source=empty   → skip T1 entirely (no constraint to enforce)
+      source=M12/M23/etc.:
+        candidate=cable   → PASS (cable can be adapted; T2 scores it at 0.3)
+        candidate=empty   → PASS (no data, both-known condition)
+        candidate=M12     → PASS iff src=M12 (exact match)
+        candidate=M23/etc.→ FAIL (hard stop — connectors cannot physically mate)
+    """
+    field   = rule["field"]
+    src_val = str(src.get(field) or "").strip()
+
+    # Skip T1 if source is unknown/empty — no constraint to enforce
+    if not src_val:
+        return pd.Series(True, index=cand_df.index)
+
+    # Skip T1 if source is cable — all candidates pass, T2 handles scoring
+    if src_val.lower() == "cable":
+        return pd.Series(True, index=cand_df.index)
+
+    # Source is a specific connector: exact match required, with two exceptions:
+    #   1. Candidate is cable → pass through to T2 soft scoring
+    #   2. Candidate is empty/unknown → pass (both-known condition)
+    cand_vals  = cand_df[field].fillna("").astype(str).str.strip()
+    cand_lower = cand_vals.str.lower()
+
+    is_cable = cand_lower == "cable"
+    is_empty = cand_lower.isin(["", "nan", "none"])
+    is_exact = cand_vals == src_val
+
+    return is_cable | is_empty | is_exact
+
+
 T1_RULE_REGISTRY = {
-    "exact_match":           _t1_exact_match,
-    "within_tolerance_pct":  _t1_within_tolerance_pct,
-    "forbidden_pairs":       _t1_forbidden_pairs,
+    "exact_match":                _t1_exact_match,
+    "within_tolerance_pct":       _t1_within_tolerance_pct,
+    "forbidden_pairs":            _t1_forbidden_pairs,
+    "exact_match_except_cable":   _t1_exact_match_except_cable,
 }
 
 
@@ -657,6 +695,30 @@ def score_candidates(src: dict, cand_df: pd.DataFrame, cfg: dict,
     for field, fc in t2_cfg.items():
         fn = SCORING_REGISTRY[fc["method"]]
         t2_scores[field] = fn(src, cand_df, field, fc.get("params", {}), cfg)
+
+    # ── Cable-conditional T2 weight redistribution ────────────────────────────
+    # When both source and candidate use specific (non-cable) connector types,
+    # T1 exact_match_except_cable already enforces an exact match — every
+    # surviving candidate has the same connector type as the source, so the
+    # T2 connection_type score would be a uniform 1.0 and adds no discriminating
+    # power.  Setting those scores to NaN triggers _weighted_score's null-
+    # redistribution: the 0.15 weight flows proportionally to the other T2
+    # fields (CPR, IP, output circuit, housing, bore), giving them more signal.
+    # When cable is involved on either side, the score is kept — the matrix
+    # produces meaningful partial scores (cable→M12=0.3, cable→cable=1.0).
+    _src_conn = str(src.get("connection_type_canonical") or "").strip().lower()
+    if "connection_type_canonical" in t2_scores and _src_conn not in ("cable", ""):
+        _cand_conn = (
+            cand_df["connection_type_canonical"]
+            .fillna("").astype(str).str.strip().str.lower()
+        )
+        # True where candidate is also a specific (non-cable, non-empty) connector
+        _both_non_cable = ~_cand_conn.isin(["cable", "", "nan", "none"])
+        # where(cond=~_both_non_cable, other=nan): keep score when cable involved,
+        # set NaN when both sides are specific connectors (triggers redistribution)
+        t2_scores["connection_type_canonical"] = (
+            t2_scores["connection_type_canonical"].where(~_both_non_cable, other=np.nan)
+        )
 
     t2 = _weighted_score(t2_scores, {f: c["weight"] for f, c in t2_cfg.items()})
 

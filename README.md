@@ -1,6 +1,6 @@
 # EncoderMatch — AI-Powered Industrial Hardware Cross-Reference Tool
 
-**AQB Solutions** | Production v2.3.0 | Deployed on AWS ECS Fargate (ap-south-1)
+**AQB Solutions** | Production v2.4.0 | Deployed on AWS ECS Fargate (ap-south-1)
 
 ---
 
@@ -47,9 +47,13 @@ Each role has a distinct colour applied consistently to avatars, row borders, an
 | **End User** | Search within their assigned manufacturer pools | Access admin console |
 
 **Constraints flow down — never up:**
-- Superadmin sets `allowed_results` (max results per search), `searches_limit` (daily cap), and `user_creation_limit` for each client admin
-- Client admin cannot grant users more access than they themselves have (sources, targets, search limit, results)
-- All limit controls in the admin UI are read-only for client admin viewers; adjustments require superadmin
+- Superadmin sets `allowed_results`, `searches_limit`, and `user_creation_limit` for each client admin
+- Client admin cannot grant users more access than they themselves have
+- All limit controls are read-only for client admin viewers; adjustments require superadmin
+
+**Post-login routing:**
+- Superadmin → Product selector page (Encoders / Valves)
+- Client admin + End user → Cross-reference search directly (selector skipped)
 
 ---
 
@@ -69,9 +73,10 @@ Silver Parquet lookup → Source encoder spec row
 Candidate fetch from target manufacturer Silver
   → Posital lifecycle filter (Exiting products excluded at module load)
         ↓
-T1 hard-stop filtering (shaft type, voltage class, hollow bore tolerance, housing diameter, connector type)
+T1 hard-stop filtering (shaft type, voltage class, hollow bore tolerance,
+  housing diameter, connector type — cable exempt)
         ↓
-T2 + T3 weighted scoring
+T2 + T3 weighted scoring (connection type weight redistributed for non-cable pairs)
         ↓
 AI explanation generation (Claude API)
         ↓
@@ -79,8 +84,6 @@ Results returned to frontend
 ```
 
 ### Data Pipeline (ETL)
-
-Encoder datasheets → structured Silver Parquet on S3, read by DuckDB at query time.
 
 ```
 PDF Datasheets / Web Scraping
@@ -104,7 +107,7 @@ Live matching engine
 | Housing | housing_diameter_mm, flange_type_canonical | T1+T2 (weight 0.10) |
 | Shaft | shaft_bore_diameter_mm, shaft_load_radial/axial_n | T1+T2 / T3 |
 | Environmental | ip_rating, operating_temp_min/max_c, shock/vibration_resistance_ms2 | T2 / T3 |
-| Connection | connection_type_canonical, connector_pins | T2 / T3 |
+| Connection | connection_type_canonical, connector_pins | T1 / T2 / T3 |
 
 ### Scoring Engine
 
@@ -113,18 +116,18 @@ Live matching engine
 - Hollow bore diameter mismatch > 10%
 - Output voltage class cross (low/TTL ↔ high/HTL)
 - Housing diameter mismatch > 10% (solid shaft encoders only)
-- Incompatible connector pairs (M12↔MS/MIL, M12↔DSub, M23↔MS/MIL, M23↔DSub, MS/MIL↔DSub)
+- **Connector type mismatch — cable exempt** (`exact_match_except_cable`): when both source and candidate use specific connector types (M12, M23, MS/MIL, DSub, M8, M16), they must match exactly. Skipped when source is cable (all candidates pass T1) or candidate is cable (passes T1, scored in T2).
 
 **T2 Primary Score** (70% of final):
 
-| Field | Weight | Scoring mode |
-|---|---|---|
-| CPR/PPR values | 0.30 | Recall: covered source values ÷ total source values |
-| IP rating | 0.20 | Directional: candidate ≥ source = 100%, shortfall penalised |
-| Connection type | 0.15 | Compatibility matrix: exact=1.0, M12↔M23=0.5 |
-| Output circuit | 0.15 | Compatibility matrix: PP↔TTL=0.4, Sin/Cos=0.0 cross |
-| Housing diameter | 0.10 | Proximity: closest diameter wins |
-| Shaft bore diameter | 0.10 | Proximity: closest bore wins |
+| Field | Weight | Scoring mode | Notes |
+|---|---|---|---|
+| CPR/PPR values | 0.30 | Recall: covered source values ÷ total source values | |
+| IP rating | 0.20 | Directional: candidate ≥ source = 100%, shortfall penalised | |
+| Connection type | 0.15 | Compatibility matrix: cable→cable=1.0, cable→M12=0.3 | Cable-involved rows only; non-cable handled by T1. Weight redistributed to other fields for non-cable pairs. |
+| Output circuit | 0.15 | Compatibility matrix: PP↔TTL=0.4, Sin/Cos=0.0 cross | |
+| Housing diameter | 0.10 | Proximity: closest diameter wins | |
+| Shaft bore diameter | 0.10 | Proximity: closest bore wins | |
 
 **T3 Secondary Score** (30% of final):
 
@@ -162,7 +165,7 @@ Partial decode fallback: Stage 2 (full decode) → Stage 3 (PPR + family) → St
 |---|---|
 | ECS Cluster | `encoder-app-cluster`, Fargate, ap-south-1 |
 | Service | `encodermatch-service` |
-| Task Definition | `encodermatch-app` revision 6 |
+| Task Definition | `encodermatch-app` revision 6+ |
 | Container | 2 vCPU / 8GB memory, DUCKDB_MEMORY=6GB |
 | Port | 8000 (FastAPI) |
 | ECR | `155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app` |
@@ -185,8 +188,6 @@ Partial decode fallback: Stage 2 (full decode) → Stage 3 (PPR + family) → St
 - `clientadmin` → client slug (same tables as their endusers)
 - `enduser` → client slug
 
-`search_id` (UUID) links history records to feedback records.
-
 ### App Stack
 
 | Layer | Technology |
@@ -203,8 +204,8 @@ Partial decode fallback: Stage 2 (full decode) → Stage 3 (PPR + family) → St
 encoder_appv2/
 ├── main.py                  # FastAPI app, all API endpoints
 ├── db_load.py               # DuckDB connection, fetch_part, fetch_candidates
-├── matcher.py               # T1/T2/T3 scoring engine, match_pair utility
-├── matcher_config.json      # Scoring weights and T1 rules (config-driven, v1.3)
+├── matcher.py               # T1/T2/T3 scoring engine — exact_match_except_cable, match_pair utility
+├── matcher_config.json      # Scoring weights and T1 rules (config-driven, v1.4)
 ├── kubler_decoder.py        # Kübler real order code decoder (31 families)
 ├── epc_decoder.py           # EPC real order code decoder (28 entries)
 ├── auth.py                  # JWT auth, DynamoDB user/session/history ops, _client_slug()
@@ -213,7 +214,7 @@ encoder_appv2/
 ├── dynamo_setup.py          # ONE-TIME setup — !! DO NOT RE-RUN ON LIVE SYSTEM !!
 ├── static/
 │   ├── index.html
-│   └── EncoderMatch.jsx     # Full React frontend (single file, no build step)
+│   └── EncoderMatch.jsx     # Full React frontend (4,801 lines, single file, no build step)
 ├── refresh_silver_ecs.py    # Trigger Silver hot-reload on ECS
 └── Dockerfile
 ```
@@ -288,14 +289,16 @@ python csv_to_silver_parquet.py --mfr all --s3
 
 | Issue | Impact | Status |
 |---|---|---|
-| No dev/prod environment separation | Test users created locally appear in ECS (same DynamoDB) | Add `ENV` prefix to all table names; run `dynamo_setup.py` for dev tables |
+| **Large undeployed bundle** | 9 files changed across Jun 12–18 not yet on ECS | Deploy: `auth.py`, `dynamo_setup.py`, `serializers.py`, `url_lookup.py`, `EncoderMatch.jsx`, `main.py`, `index.html`, `matcher.py`, `matcher_config.json` |
+| `CLAUDE.md` ECR name stale | Deployment commands in CLAUDE.md reference old `encoder-crossref-app` ECR name | Update to `encodermatch-app` before next deploy |
+| UserDetailPage header avatar hardcoded | Large avatar in UserDetailPage uses hardcoded blue gradient instead of `rc.grd` from roleColors system | Minor cosmetic; fix in next UI pass |
+| History replay empty source_mfr for old records | DynamoDB history records written before Jun 18 lack `source_mfr`. Clicking them pre-fills part number and targets but not source; "Code not recognized" guard may fire | Acceptable degradation; user can re-detect manually |
+| No dev/prod environment separation | Test users in local dev appear in live ECS (same DynamoDB) | Add `ENV` prefix to all table names |
 | `get_all_users_for_client` does full table scan | Slow as user count grows | Add GSI on `client` field in `encodermatch_users` |
 | Kübler URL slugs not yet deployed | Some Kübler product URLs in result cards are broken | `url_lookup.py` slug fix designed, not deployed |
 | Baumer remaining categories not yet scraped | Absolute, bearingless, programmable, functional safety categories missing | Scraping in progress |
 | Absolute encoder Silver schema not designed | Absolute encoder data (Lika, Baumer) not yet in Silver | Design session required |
 | EC2 ETL node is t3.small | Baumer scraper is memory-heavy | Upgrade to t3.medium |
 | Elastic IP not assigned to ECS | Public IP changes on every Fargate restart | Assign Elastic IP |
-| `output_voltage_class` T1 forbidden pairs incomplete | Dead code — SQL pre-filter masks it | Add TTL/universal/analog pairs to `matcher_config.json` |
 | `refresh_silver_ecs.py` has hardcoded credentials | Security risk | Move to env vars |
 | `dynamo_setup.py` has hardcoded passwords | Security risk | Move to env vars |
-| Large accumulated undeployed bundle | 7 files changed across Jun 12–17 not yet on ECS | Deploy: auth.py, dynamo_setup.py, serializers.py, url_lookup.py, EncoderMatch.jsx, main.py, index.html |
