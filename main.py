@@ -718,7 +718,8 @@ async def explain_match(body: ExplainRequest):
             from config_claude import MODEL as _CFG_MODEL
             model = _CFG_MODEL
         except (ImportError, AttributeError):
-            model = "claude-sonnet-4-6"
+            # model = "claude-sonnet-4-6"
+            model = "claude-haiku-4-5-20251001"
 
     result = body.result
     source = body.source

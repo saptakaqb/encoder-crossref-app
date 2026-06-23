@@ -1662,23 +1662,32 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
             </div>
         }
       </div>
-      {/* Number of results — superadmin: adjustable; clientadmin/enduser: greyed, fixed to allowed_results */}
+      {/* Number of results — superadmin: adjustable slider; clientadmin/enduser: static display */}
       <div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Results to Show</label>
-        <div style={{display:'flex',alignItems:'center',gap:8,opacity:isRestricted?0.55:1}}>
-          <input type="range" min={1} max={50} step={1} value={topN} disabled={isRestricted}
-            onChange={e=>setTopN(+e.target.value)}
-            style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,
-              background:dark?'#334155':'#e2e8f0',outline:'none',
-              cursor:isRestricted?'not-allowed':'pointer',accentColor:'#1a3570'}}/>
-          <NumInput value={topN} min={1} max={50} onChange={setTopN}
-            style={{width:46,padding:'4px 6px',background:inputBg,border:`1px solid ${border}`,
-              borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',
-              fontSize:13,fontWeight:700,textAlign:'center',outline:'none',
-              ...(isRestricted?{pointerEvents:'none',cursor:'not-allowed'}:{})}}/>
-        </div>
-        {isRestricted&&<div style={{fontSize:10.5,color:textSec,marginTop:3}}>Set by AQB Solutions · {topN} results</div>}
-        {!isRestricted&&<div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:10,color:textSec}}>1</span><span style={{fontSize:10,color:textSec}}>50</span></div>}
+        {isRestricted
+          ? <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderRadius:6,background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`}}>
+              <span style={{fontSize:13,color:textSec}}>Set by AQB Solutions</span>
+              <span style={{fontSize:13,fontWeight:700,color:textPri,fontVariantNumeric:'tabular-nums'}}>{topN}</span>
+            </div>
+          : <>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <input type="range" min={1} max={50} step={1} value={topN}
+                  onChange={e=>setTopN(+e.target.value)}
+                  style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,
+                    background:dark?'#334155':'#e2e8f0',outline:'none',
+                    cursor:'pointer',accentColor:'#1a3570'}}/>
+                <NumInput value={topN} min={1} max={50} onChange={setTopN}
+                  style={{width:46,padding:'4px 6px',background:inputBg,border:`1px solid ${border}`,
+                    borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',
+                    fontSize:13,fontWeight:700,textAlign:'center',outline:'none'}}/>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
+                <span style={{fontSize:10,color:textSec}}>1</span>
+                <span style={{fontSize:10,color:textSec}}>50</span>
+              </div>
+            </>
+        }
       </div>
 
       {/* Search button */}
@@ -2012,7 +2021,7 @@ function HistoryPage({ user, onRerun, dark, authToken }) {
 }
 
 // ── Admin ───────────────────────────────────────────────────────────────────
-function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdmin }) {
+function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdmin, currentUserId }) {
   const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
   const [hov,setHov]=React.useState(null);
@@ -2190,7 +2199,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
   };
 
   // Grid: [20px chevron] [name] [email] [daily searches] [users quota] [target dbs] [status] [delete]
-  const COLS = '20px 1fr 1fr 130px 110px 145px 70px 40px';
+  const COLS = '90px 1fr 1fr 130px 110px 145px 70px 40px';
 
   // ── Client admin row ───────────────────────────────────────────────────────
   const ClientAdminRow = ({ ca, isLastInList }) => {
@@ -2216,19 +2225,38 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
             borderLeft: `3px solid #7c3aed`,
             cursor:'pointer', transition:'background 0.12s',
           }}>
-          {/* Chevron */}
-          <div onClick={e=>toggleExpand(ca.id,e)}
-            style={{display:'flex',alignItems:'center',justifyContent:'center',
-              width:20,height:20,borderRadius:4,cursor:'pointer',
-              color:dark?'#a78bfa':'#7c3aed', flexShrink:0,
-              transition:'background 0.1s'}}
-            onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.background=dark?'#2d1b69':'#ede9fe';}}
-            onMouseLeave={e=>{e.stopPropagation();e.currentTarget.style.background='transparent';}}>
-            <svg width={11} height={11} viewBox="0 0 11 11" fill="none"
-              style={{transform:isExpanded?'rotate(90deg)':'rotate(0deg)',transition:'transform 0.15s'}}>
-              <path d="M3.5 2l4 3.5-4 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
+          {/* Chevron — larger hit area, user count label, pulse on mount for discoverability */}
+          {(()=>{
+            const [pulsed, setPulsed] = React.useState(false);
+            React.useEffect(()=>{
+              if(children.length > 0 && !isExpanded){
+                setPulsed(true);
+                const t = setTimeout(()=>setPulsed(false), 2400);
+                return ()=>clearTimeout(t);
+              }
+            },[]); // eslint-disable-line
+            return (
+              <div onClick={e=>toggleExpand(ca.id,e)}
+                style={{display:'flex',alignItems:'center',gap:5,cursor:'pointer',
+                  padding:'4px 6px',borderRadius:6,userSelect:'none',
+                  color:dark?'#a78bfa':'#7c3aed',transition:'background 0.1s'}}
+                onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.background=dark?'#2d1b69':'#ede9fe';}}
+                onMouseLeave={e=>{e.stopPropagation();e.currentTarget.style.background='transparent';}}>
+                <svg width={14} height={14} viewBox="0 0 11 11" fill="none"
+                  style={{transform:isExpanded?'rotate(90deg)':'rotate(0deg)',
+                    transition:'transform 0.15s',flexShrink:0,
+                    animation:pulsed?'chevronPulse 0.8s ease-in-out 3':'none'}}>
+                  <path d="M3.5 2l4 3.5-4 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {!isExpanded&&children.length>0&&(
+                  <span style={{fontSize:11,fontWeight:600,color:dark?'#a78bfa':'#7c3aed',
+                    whiteSpace:'nowrap',animation:pulsed?'chevronPulse 0.8s ease-in-out 3':'none'}}>
+                    {children.length} user{children.length!==1?'s':''}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Name + role badge */}
           <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}>
@@ -2306,17 +2334,20 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
           {statusBadge(ca.status)}
 
           {/* Delete */}
-          <button onClick={e=>handleDelete(ca.id,'clientadmin',ca.name,e)} disabled={deleting===ca.id}
-            style={{background:'transparent',border:'none',cursor:'pointer',
-              color:dark?'#475569':'#94a3b8',padding:4,
-              display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
-            onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
-            onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
-            title="Delete client admin">
-            <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
-              <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          {ca.id !== currentUserId
+            ? <button onClick={e=>handleDelete(ca.id,'clientadmin',ca.name,e)} disabled={deleting===ca.id}
+                style={{background:'transparent',border:'none',cursor:'pointer',
+                  color:dark?'#475569':'#94a3b8',padding:4,
+                  display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
+                onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
+                onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
+                title="Delete client admin">
+                <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
+                  <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            : <div style={{width:21}}/>  /* spacer to keep grid alignment */
+          }
         </div>
 
         {/* Child end users — shown when expanded */}
@@ -4135,7 +4166,6 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
       <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20}}>
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
-            <span style={{fontFamily:'IBM Plex Mono, monospace',fontSize:13,fontWeight:700,color:dark?'#60a5fa':'#1a3570',letterSpacing:'0.02em'}}>aqb</span>
             <span style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:dark?'#475569':'#94a3b8'}}>Admin Console</span>
           </div>
           <h2 style={{margin:0,fontSize:18,fontWeight:700,color:textPri,letterSpacing:'-0.02em'}}>
@@ -4208,7 +4238,7 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
       </div>
 
       {/* ── Tab content ── */}
-      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={onNavigateToUser} isSuperAdmin={isSuperAdmin}/>}
+      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={onNavigateToUser} isSuperAdmin={isSuperAdmin} currentUserId={user?.userId||user?.email}/>}
       {tab==='analytics'&&(isSuperAdmin
         ? <AnalyticsTab dark={dark} authToken={authToken}/>
         : <ClientAnalyticsTab dark={dark} authToken={authToken}/>
@@ -4857,7 +4887,7 @@ function App() {
 
   return (
     <>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideInToast{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}@keyframes pageSlideFwd{from{opacity:0;transform:translateX(18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes pageSlideBack{from{opacity:0;transform:translateX(-18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes fadeInPage{from{opacity:0}to{opacity:1}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideInToast{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}@keyframes pageSlideFwd{from{opacity:0;transform:translateX(18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes pageSlideBack{from{opacity:0;transform:translateX(-18px) scale(0.99)}to{opacity:1;transform:translateX(0) scale(1)}}@keyframes fadeInPage{from{opacity:0}to{opacity:1}}@keyframes chevronPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(1.25)}}*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;overflow:hidden}body{font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}`}</style>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
       <div style={{display:'flex',height:'100vh',overflow:'hidden',background:appBg,fontFamily:'IBM Plex Sans, sans-serif'}}>
         <AppNav page={page} setPage={setPage} user={baseUser} dark={dark} onLogout={handleLogout} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed}/>
