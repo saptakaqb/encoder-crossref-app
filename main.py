@@ -263,6 +263,7 @@ class MatchRequest(BaseModel):
 class UpdateUserRequest(BaseModel):
     searches_limit:      Optional[int]       = None
     user_creation_limit: Optional[int]       = None
+    allowed_results:     Optional[int]       = None
     allowed_targets:     Optional[List[str]] = None
     direction:           Optional[str]       = None
     status:              Optional[str]       = None
@@ -476,6 +477,16 @@ async def run_match(body: MatchRequest, user: dict = Depends(get_current_user)):
         )
 
     # ── Combine + dedup + rank ─────────────────────────────────────────────
+    # Track which targets contributed scored rows (before zero-score filter)
+    # so we can backfill no_match_reasons for targets that go silent (I-22).
+    targets_with_scored: set[str] = set()
+    if all_scored:
+        for df in all_scored:
+            if "manufacturer" in df.columns:
+                targets_with_scored.update(
+                    str(v).lower() for v in df["manufacturer"].unique()
+                )
+
     if not all_scored:
         results_json = []
     else:
@@ -512,6 +523,25 @@ async def run_match(body: MatchRequest, user: dict = Depends(get_current_user)):
                 )
                 for rank, (_, row) in enumerate(top.iterrows(), 1)
             ]
+
+    # ── Backfill no_match_reasons for silent targets (I-22) ───────────────
+    # A target is "silent" when it had SQL candidates and passed T1 (so
+    # no reason was set during the match loop) but all scored rows were
+    # zero-score and dropped, leaving it absent from results_json.
+    result_manufacturers = {r["manufacturer"].lower() for r in results_json if r.get("manufacturer")}
+    for tgt in effective_targets:
+        if tgt not in no_match_reasons and tgt not in result_manufacturers:
+            if tgt in targets_with_scored:
+                # Candidates existed but all scored 0 — ultra-low compatibility
+                no_match_reasons[tgt] = {
+                    "code":    "zero_score",
+                    "message": f"No compatible {tgt.title()} encoders found.",
+                    "detail":  (
+                        "Candidates were found but none met the minimum compatibility "
+                        "threshold. The source encoder's specifications (PPR, shaft size, "
+                        "or electrical class) may not have a standard equivalent in this catalog."
+                    ),
+                }
 
     # ── Record history ─────────────────────────────────────────────────────
     top_match = results_json[0]["part_number"] if results_json else None
@@ -1096,6 +1126,32 @@ async def create_user(
     from auth import hash_password, get_user
     from datetime import datetime as _dt
 
+    # ── Role hierarchy guard (I-9) ───────────────────────────────────────────
+    # Clientadmins can only create endusers — they cannot grant their own role.
+    if admin.get("role") == "clientadmin" and body.role != "enduser":
+        raise HTTPException(
+            status_code=403,
+            detail="Client administrators can only create end users.",
+        )
+
+    # ── User creation limit enforcement (I-12) ───────────────────────────────
+    # Check the calling admin's user_creation_limit before writing.
+    if admin.get("role") == "clientadmin":
+        creation_limit = admin.get("user_creation_limit")
+        if creation_limit is not None:
+            existing = get_all_users_for_client(admin.get("client", ""))
+            created_by_admin = [
+                u for u in existing if u.get("created_by") == admin.get("userId")
+            ]
+            if len(created_by_admin) >= int(creation_limit):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"User creation limit of {int(creation_limit)} reached. "
+                        "Contact AQB Solutions to increase your limit."
+                    ),
+                )
+
     if get_user(body.email):
         raise HTTPException(status_code=409, detail=f"User '{body.email}' already exists.")
 
@@ -1158,12 +1214,43 @@ async def delete_user_endpoint(
     user_id: str,
     admin: dict = Depends(require_admin),
 ):
-    """Delete a user. Admin only. Cannot delete yourself."""
+    """Delete a user. Admin only. Cannot delete yourself, a superadmin, or users outside your client."""
     from auth import delete_user, get_user as _get_user
     if user_id == admin.get("userId"):
         raise HTTPException(status_code=400, detail="Cannot delete your own account.")
-    if not _get_user(user_id):
+    target = _get_user(user_id)
+    if not target:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found.")
+    if target.get("role") == "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin accounts cannot be deleted.")
+    # ── Clientadmin has existing users — block deletion ───────────────────────
+    # A clientadmin can only be deleted once all their child users are removed.
+    # Check by scanning for endusers created_by this clientadmin.
+    if target.get("role") == "clientadmin":
+        from auth import get_all_users_for_client
+        client_users = get_all_users_for_client(target.get("client", ""))
+        children = [u for u in client_users
+                    if u.get("role") == "enduser" and u.get("created_by") == user_id]
+        if children:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot delete: this client admin has {len(children)} active user(s). "
+                       f"Delete all their users first."
+            )
+    # ── Clientadmin scope guards (I-10, I-11) ────────────────────────────────
+    if admin.get("role") == "clientadmin":
+        # Cannot delete admins (superadmin or other clientadmins)
+        if target.get("role") in ("superadmin", "clientadmin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Client administrators cannot delete other administrators.",
+            )
+        # Cannot delete users from a different client
+        if target.get("client") != admin.get("client"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You can only manage users within your own client.",
+            )
     delete_user(user_id)
     return {"status": "deleted", "userId": user_id}
 
@@ -1178,6 +1265,32 @@ async def update_user_constraints(
     updates = {k: v for k, v in body.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    # ── Clientadmin scope guards (I-11) ──────────────────────────────────────
+    if admin.get("role") == "clientadmin":
+        target_user = get_user(target)
+        if not target_user:
+            raise HTTPException(status_code=404, detail=f"User '{target}' not found.")
+        if target_user.get("role") in ("superadmin", "clientadmin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Client administrators cannot modify other administrators.",
+            )
+        if target_user.get("client") != admin.get("client"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You can only manage users within your own client.",
+            )
+        # ── Limit fields are superadmin-only (I-15) ───────────────────────
+        # searches_limit, allowed_results, user_creation_limit may only be
+        # changed by superadmin — clientadmin cannot grant their users more
+        # capacity than was configured at account creation.
+        SUPERADMIN_ONLY_FIELDS = {"searches_limit", "allowed_results", "user_creation_limit"}
+        blocked = SUPERADMIN_ONLY_FIELDS & set(updates.keys())
+        if blocked:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Only AQB administrators can modify: {', '.join(sorted(blocked))}.",
+            )
     update_user(target, updates)
     return {"status": "updated", "userId": target, "updates": updates}
 

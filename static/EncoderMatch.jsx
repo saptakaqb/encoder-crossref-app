@@ -857,7 +857,7 @@ function ProductSelectorPage({ dark, user, onSelect }) {
 
       {/* Footer note */}
       <div style={{marginTop:32, fontSize:12, color:textMut}}>
-        You can switch between products at any time from the sidebar.
+        Additional products will appear here as they launch.
       </div>
     </div>
   );
@@ -1031,7 +1031,7 @@ function LoginPage({ onLogin, dark }) {
               </button>
             </form>
           </div>
-          <p style={{textAlign:'center',marginTop:20,fontSize:12,color:'#94a3b8'}}>© 2026 AQB Solutions Private Ltd. · EncoderMatch v1.0</p>
+          <p style={{textAlign:'center',marginTop:20,fontSize:12,color:'#94a3b8'}}>© 2026 AQB Solutions Private Ltd. · EncoderMatch v2.4.0</p>
         </div>
       </div>
     </div>
@@ -1493,16 +1493,19 @@ function normalizeWeights(raw) {
 // ── SearchPanel ─────────────────────────────────────────────────────────────
 function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToken, mfrIds, mfrLabel, replayParams, setReplayParams }) {
   const isAdmin=user.role==='superadmin';
+  const isClientAdmin=user.role==='clientadmin';
+  const isEndUser=user.role==='enduser';
+  const isRestricted=isClientAdmin||isEndUser; // non-superadmin: locked source pool, locked targets, locked results
   const [partNum,setPartNum]=React.useState('');
   const [source,setSource]=React.useState(()=>isAdmin?'kubler':(user.allowed_sources||['kubler'])[0]||'kubler');
   const [targets,setTargets]=React.useState(()=>{
     const ids=isAdmin?mfrIds:(user.allowed_targets||[]);
     return Object.fromEntries(ids.map((m,i)=>[m,i===0]));
   });
-  const isEndUser=user.role==='enduser';
   const isMultiTarget=isAdmin||(user.allowed_targets||[]).length>0;
-  const END_USER_MAX_RESULTS=3;
-  const [topN,setTopN]=React.useState(isAdmin?10:isEndUser?END_USER_MAX_RESULTS:5);
+  // topN: superadmin can adjust freely; clientadmin/enduser are fixed to their allowed_results
+  const effectiveResultLimit=isAdmin?null:(user.allowed_results||3);
+  const [topN,setTopN]=React.useState(isAdmin?10:effectiveResultLimit);
   const [detectedMfr,setDetectedMfr]=React.useState(null);
   const [detecting,setDetecting]=React.useState(false);
   const detectRef=React.useRef(null);
@@ -1550,7 +1553,7 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
       });
       if(resp.ok){
         const data=await resp.json();
-        const availSrc=isAdmin?mfrIds:[...(user.allowed_sources||[]),...(user.allowed_targets||[])].filter((v,i,a)=>a.indexOf(v)===i);
+        const availSrc=isAdmin?mfrIds:(user.allowed_sources||[]);
         if(data.manufacturer){
           setDetectedMfr(data.manufacturer);  // always mark as recognized if API identifies a manufacturer
           // Only update the source dropdown if the detected mfr differs from current selection
@@ -1592,21 +1595,17 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
   const bg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#64748b':'#94a3b8', inputBg=dark?'#0f172a':'#f8fafc';
   const locked=!isAdmin&&user.searches_used>=user.searches_limit;
-  // For non-admin users the target is locked to user.client — anyTarget is
-  // always true as long as they have at least one allowed target.
-  // Using the targets state for non-admin causes a bug: when EPC is detected
-  // as source, targets.epc flips to false (the only initially-true value),
-  // making anyTarget=false and permanently greying the button.
-  const anyTarget=Object.values(targets).some(Boolean);
-  const toggleTarget=(key)=>!locked&&setTargets(t=>({...t,[key]:!t[key]}));
-  // For bidirectional endusers, any manufacturer in either pool can be source
-  const endUserSrcPool=[...(user.allowed_sources||[]),...(user.allowed_targets||[])].filter((v,i,a)=>a.indexOf(v)===i);
-  const availableSources=isAdmin?mfrIds:endUserSrcPool;
-  const swapSourceTarget=()=>{const ft=Object.entries(targets).find(([,v])=>v)?.[0];if(!ft)return;setSource(ft);setTargets({...Object.fromEntries(availableSources.map(m=>[m,false])),[source]:true});};
+  const anyTarget=Object.values(targets).some(Boolean)||isRestricted; // restricted users always have a target
+  const toggleTarget=(key)=>!locked&&!isRestricted&&setTargets(t=>({...t,[key]:!t[key]}));
+  // Source pool: superadmin gets all mfrs; clientadmin/enduser get only their allowed_sources
+  // (no blending with targets — bidirectional is superadmin-only)
+  const availableSources=isAdmin?mfrIds:(user.allowed_sources||[]);
   const availableTargets=(isAdmin?mfrIds:(user.allowed_targets||[])).filter(m=>m!==source);
+  // Out-of-pool detection: if auto-detect resolves to a mfr outside allowed_sources, block search
+  const outOfPool=!isAdmin&&detectedMfr&&!(user.allowed_sources||[]).includes(detectedMfr);
   return (
     <div style={{width:268,flexShrink:0,background:bg,borderRight:`1px solid ${border}`,display:'flex',flexDirection:'column',padding:'20px 16px',gap:16,overflowY:'auto'}}>
-      <div style={{fontSize:13,fontWeight:700,color:dark?'#94a3b8':'#374151',letterSpacing:'-0.01em'}}>{isMultiTarget?'Bidirectional Search':'Find Replacements'}</div>
+      <div style={{fontSize:13,fontWeight:700,color:dark?'#94a3b8':'#374151',letterSpacing:'-0.01em'}}>Find Replacements</div>
       <div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Part Number</label>
         <input value={partNum} onChange={e=>handlePartNumChange(e.target.value)}
@@ -1614,19 +1613,27 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
           disabled={locked}
           style={{width:'100%',boxSizing:'border-box',padding:'9px 10px',fontFamily:'IBM Plex Mono, monospace',fontSize:13,background:locked?(dark?'#1e293b':'#f8fafc'):inputBg,border:`1px solid ${border}`,borderRadius:6,color:locked?textSec:textPri,outline:'none'}}
           onFocus={e=>{if(!locked)e.target.style.borderColor='#1a3570';}} onBlur={e=>e.target.style.borderColor=border}/>
-        {detectedMfr&&<div style={{marginTop:5,fontSize:11,color:dark?'#34d399':'#059669',display:'flex',alignItems:'center',gap:4}}>
+        {detectedMfr&&!outOfPool&&<div style={{marginTop:5,fontSize:11,color:dark?'#34d399':'#059669',display:'flex',alignItems:'center',gap:4}}>
           <svg width={10} height={10} viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M3 5l1.5 1.5L7 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           Auto-detected: {mfrLabel(detectedMfr)}
+        </div>}
+        {outOfPool&&<div style={{marginTop:6,padding:'8px 10px',borderRadius:6,background:dark?'#2d1515':'#fff7ed',border:`1px solid ${dark?'#7f1d1d':'#fed7aa'}`,fontSize:11.5,color:dark?'#fca5a5':'#c2410c',lineHeight:1.5}}>
+          <strong>{mfrLabel(detectedMfr)}</strong> is not in your source pool.<br/>
+          Available: {(user.allowed_sources||[]).map(m=>mfrLabel(m)).join(', ')}
         </div>}
       </div>
       <div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Source Manufacturer</label>
-        <select value={source} onChange={e=>{setSource(e.target.value);setTargets(t=>({...t,[e.target.value]:false}));}} style={{width:'100%',padding:'8px 10px',background:inputBg,border:`1px solid ${border}`,borderRadius:6,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,outline:'none',cursor:'pointer'}}>
+        <select value={source} onChange={e=>{setSource(e.target.value);setTargets(t=>({...t,[e.target.value]:false}));}}
+          disabled={isRestricted&&availableSources.length<=1}
+          style={{width:'100%',padding:'8px 10px',background:inputBg,border:`1px solid ${border}`,borderRadius:6,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,outline:'none',cursor:(isRestricted&&availableSources.length<=1)?'default':'pointer'}}>
           {availableSources.map(m=><option key={m} value={m}>{mfrLabel(m)}</option>)}
         </select>
       </div>
-      {isMultiTarget&&(
-        <button onClick={swapSourceTarget} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px',borderRadius:6,cursor:'pointer',width:'100%',background:'transparent',border:`1px dashed ${border}`,color:textSec,fontFamily:'IBM Plex Sans, sans-serif',fontSize:12}}
+      {/* Swap button — superadmin only */}
+      {isAdmin&&(
+        <button onClick={()=>{const ft=Object.entries(targets).find(([,v])=>v)?.[0];if(!ft)return;setSource(ft);setTargets({...Object.fromEntries(mfrIds.map(m=>[m,false])),[source]:true});}}
+          style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px',borderRadius:6,cursor:'pointer',width:'100%',background:'transparent',border:`1px dashed ${border}`,color:textSec,fontFamily:'IBM Plex Sans, sans-serif',fontSize:12}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor='#1a3570';e.currentTarget.style.color=dark?'#93c5fd':'#1a3570';}}
           onMouseLeave={e=>{e.currentTarget.style.borderColor=border;e.currentTarget.style.color=textSec;}}>
           <svg width={14} height={14} viewBox="0 0 14 14" fill="none"><path d="M2 5h10M9 2l3 3-3 3M12 9H2M5 6l-3 3 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -1634,8 +1641,8 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
         </button>
       )}
       <div>
-        <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>{isMultiTarget?'Search Against':'Target (Locked)'}</label>
-        {isMultiTarget
+        <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Search Against</label>
+        {isAdmin
           ? availableTargets.map(db=>(
               <label key={db} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 8px',borderRadius:5,marginBottom:3,cursor:locked?'default':'pointer',background:targets[db]?(dark?'#0f1f3d':'#eff6ff'):'transparent',border:`1px solid ${targets[db]?(dark?'#1e40af':'#bfdbfe'):(dark?'#1e293b':'#f1f5f9')}`}}>
                 <div style={{width:15,height:15,borderRadius:3,flexShrink:0,background:targets[db]?'#1a3570':(dark?'#1e293b':'#f8fafc'),border:`1.5px solid ${targets[db]?'#1a3570':(dark?'#334155':'#d1d5db')}`,display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -1645,50 +1652,53 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
                 <span style={{fontSize:13,fontWeight:500,color:dark?'#e2e8f0':'#374151'}}>{mfrLabel(db)}</span>
               </label>
             ))
-          : <div style={{padding:'9px 12px',background:dark?'#0f1f3d':'#eff6ff',border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,borderRadius:6,display:'flex',alignItems:'center',gap:8}}>
-              <svg width={12} height={12} viewBox="0 0 12 12" fill="none"><rect x="1" y="4" width="8" height="7" rx="1" stroke={dark?'#60a5fa':'#1a3570'} strokeWidth="1.3"/><path d="M3 4V3a2 2 0 014 0v1" stroke={dark?'#60a5fa':'#1a3570'} strokeWidth="1.3" strokeLinecap="round"/></svg>
-              <span style={{fontSize:13,fontWeight:600,color:dark?'#93c5fd':'#1a3570'}}>{mfrLabel(user.client)}</span>
-              <span style={{marginLeft:'auto',fontSize:10,color:dark?'#475569':'#93c5fd',fontWeight:500}}>locked</span>
+          : <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {(user.allowed_targets||[]).map(db=>(
+                <div key={db} style={{padding:'6px 12px',borderRadius:16,background:dark?'#0f1f3d':'#eff6ff',border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,display:'flex',alignItems:'center',gap:6}}>
+                  <svg width={10} height={10} viewBox="0 0 12 12" fill="none"><rect x="1" y="4" width="8" height="7" rx="1" stroke={dark?'#60a5fa':'#1a3570'} strokeWidth="1.3"/><path d="M3 4V3a2 2 0 014 0v1" stroke={dark?'#60a5fa':'#1a3570'} strokeWidth="1.3" strokeLinecap="round"/></svg>
+                  <span style={{fontSize:12,fontWeight:600,color:dark?'#93c5fd':'#1a3570'}}>{mfrLabel(db)}</span>
+                </div>
+              ))}
             </div>
         }
       </div>
-      {/* Number of results — adjustable for admin, read-only for enduser */}
-      {(isAdmin||isEndUser)&&<div>
-        <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Results to show</label>
-        <div style={{display:'flex',alignItems:'center',gap:8,opacity:isEndUser?0.6:1}}>
-          <input type="range" min={1} max={50} step={1} value={topN} disabled={isEndUser}
+      {/* Number of results — superadmin: adjustable; clientadmin/enduser: greyed, fixed to allowed_results */}
+      <div>
+        <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Results to Show</label>
+        <div style={{display:'flex',alignItems:'center',gap:8,opacity:isRestricted?0.55:1}}>
+          <input type="range" min={1} max={50} step={1} value={topN} disabled={isRestricted}
             onChange={e=>setTopN(+e.target.value)}
             style={{flex:1,WebkitAppearance:'none',appearance:'none',height:5,borderRadius:3,
               background:dark?'#334155':'#e2e8f0',outline:'none',
-              cursor:isEndUser?'not-allowed':'pointer',accentColor:'#1a3570'}}/>
+              cursor:isRestricted?'not-allowed':'pointer',accentColor:'#1a3570'}}/>
           <NumInput value={topN} min={1} max={50} onChange={setTopN}
             style={{width:46,padding:'4px 6px',background:inputBg,border:`1px solid ${border}`,
               borderRadius:5,color:textPri,fontFamily:'IBM Plex Sans, sans-serif',
               fontSize:13,fontWeight:700,textAlign:'center',outline:'none',
-              cursor:isEndUser?'not-allowed':'text',
-              ...(isEndUser?{pointerEvents:'none',opacity:0.6}:{})}}/>
+              ...(isRestricted?{pointerEvents:'none',cursor:'not-allowed'}:{})}}/>
         </div>
-        <div style={{display:'flex',justifyContent:'space-between',marginTop:3}}>
-          <span style={{fontSize:10,color:textSec}}>1</span>
-          <span style={{fontSize:10,color:textSec}}>50</span>
-        </div>
-        {isEndUser&&<div style={{fontSize:10.5,color:textSec,marginTop:2}}>Restricted to {END_USER_MAX_RESULTS} results for your account</div>}
-      </div>}
-
+        {isRestricted&&<div style={{fontSize:10.5,color:textSec,marginTop:3}}>Set by AQB Solutions · {topN} results</div>}
+        {!isRestricted&&<div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:10,color:textSec}}>1</span><span style={{fontSize:10,color:textSec}}>50</span></div>}
+      </div>
 
       {/* Search button */}
-      <button onClick={()=>!locked&&anyTarget&&partNum.trim()&&!detecting&&onSearch(partNum,sourceRef.current,targets,isEndUser?END_USER_MAX_RESULTS:topN,{tier2:normalizeWeights(t2Raw),tier3:normalizeWeights(t3Raw)},detectedMfr)} disabled={locked||!anyTarget||!partNum.trim()||detecting}
-        style={{width:'100%',padding:'10px',background:(locked||!anyTarget||!partNum.trim()||detecting)?(dark?'#1e293b':'#f1f5f9'):'#1a3570',color:(locked||!anyTarget||!partNum.trim()||detecting)?textSec:'white',border:'none',borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13.5,fontWeight:600,cursor:(locked||!anyTarget||!partNum.trim()||detecting)?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
-        {searchState==='loading'
-          ?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'white',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>Matching…</>
-          :detecting
-            ?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'white',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>Detecting source…</>
-            :<><svg width={14} height={14} viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>Find Replacements</>
-        }
-      </button>
+      {(() => {
+        const btnDisabled=locked||!anyTarget||!partNum.trim()||detecting||outOfPool;
+        return (
+          <button onClick={()=>!btnDisabled&&onSearch(partNum,sourceRef.current,targets,topN,{tier2:normalizeWeights(t2Raw),tier3:normalizeWeights(t3Raw)},detectedMfr)} disabled={btnDisabled}
+            style={{width:'100%',padding:'10px',background:btnDisabled?(dark?'#1e293b':'#f1f5f9'):'#1a3570',color:btnDisabled?textSec:'white',border:'none',borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13.5,fontWeight:600,cursor:btnDisabled?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+            {searchState==='loading'
+              ?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'white',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>Matching…</>
+              :detecting
+                ?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'white',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>Detecting source…</>
+                :<><svg width={14} height={14} viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>Find Replacements</>
+            }
+          </button>
+        );
+      })()}
       <div style={{display:'flex',alignItems:'center',gap:7,fontSize:11.5,color:dark?'#475569':'#94a3b8',padding:'8px 10px',borderRadius:6,background:dark?'#0f172a':'#f8fafc',border:`1px solid ${dark?'#1e293b':'#f1f5f9'}`}}>
-        {isMultiTarget
-          ?<><svg width={14} height={14} viewBox="0 0 14 14" fill="none"><path d="M2 5h10M9 2l3 3-3 3M12 9H2M5 6l-3 3 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg><span style={{color:dark?'#a78bfa':'#7c3aed',fontWeight:600}}>Bidirectional</span>{isAdmin?' — AQB access':''}</>
+        {isAdmin
+          ?<><svg width={14} height={14} viewBox="0 0 14 14" fill="none"><path d="M2 5h10M9 2l3 3-3 3M12 9H2M5 6l-3 3 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg><span style={{color:dark?'#a78bfa':'#7c3aed',fontWeight:600}}>Bidirectional</span> — AQB access</>
           :<><svg width={12} height={12} viewBox="0 0 12 12" fill="none"><path d="M2 6h8M6 3l4 3-4 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>Source-only matching</>
         }
       </div>
@@ -1960,7 +1970,7 @@ function HistoryPage({ user, onRerun, dark, authToken }) {
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
         <div>
           <h2 style={{margin:0,fontSize:18,fontWeight:700,color:textPri,letterSpacing:'-0.02em'}}>Search History</h2>
-          <p style={{margin:'3px 0 0',fontSize:13,color:textSec}}>Your past {data.history.length} searches · {user.searches_used} of {user.searches_limit} used today</p>
+          <p style={{margin:'3px 0 0',fontSize:13,color:textSec}}>Your past {displayHistory.length} searches · {user.searches_used} of {user.searches_limit} used today</p>
         </div>
         <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:8,padding:'10px 16px',display:'flex',alignItems:'center',gap:12}}>
           <div>
@@ -2002,11 +2012,17 @@ function HistoryPage({ user, onRerun, dark, authToken }) {
 }
 
 // ── Admin ───────────────────────────────────────────────────────────────────
-function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
+function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdmin }) {
   const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
   const [hov,setHov]=React.useState(null);
   const [deleting,setDeleting]=React.useState(null);
+
+  // ── Delete modal state ──────────────────────────────────────────────────────
+  // blockedDelete: clientadmin has children — show blocker, no delete allowed
+  // confirmDelete: standard confirm before proceeding with delete
+  const [blockedDelete, setBlockedDelete] = React.useState(null); // {userId, name, childCount}
+  const [confirmDelete, setConfirmDelete] = React.useState(null); // {userId, name, role}
 
   // ── Three-way split: superadmins → clientadmins → endusers ──────────────────
   // Superadmins get their own section at the top.
@@ -2045,17 +2061,123 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
     });
   };
 
-  const handleDelete = async (userId, e) => {
+  const handleDelete = (userId, role, name, e) => {
     e.stopPropagation();
-    if (!window.confirm(`Delete ${userId}? This cannot be undone.`)) return;
+    if (role === 'clientadmin') {
+      const children = usersByAdmin[userId] || [];
+      if (children.length > 0) {
+        // Blocked — clientadmin still has users
+        setBlockedDelete({ userId, name, childCount: children.length });
+        return;
+      }
+    }
+    // Safe to delete — show confirmation modal
+    setConfirmDelete({ userId, name, role });
+  };
+
+  const executeDelete = async () => {
+    if (!confirmDelete) return;
+    const { userId } = confirmDelete;
+    setConfirmDelete(null);
     setDeleting(userId);
     try {
       const resp = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`,
-        {method:'DELETE', headers:{'Authorization':`Bearer ${authToken}`}});
-      if (resp.ok) onRefresh&&onRefresh(); else alert('Failed to delete.');
-    } catch (_) { alert('Error deleting.'); }
+        { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } });
+      if (resp.ok) {
+        onRefresh && onRefresh();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        // Backend returned 409 — clientadmin gained users between check and delete
+        if (resp.status === 409) {
+          setBlockedDelete({ userId, name: confirmDelete.name, childCount: '?' });
+        } else {
+          alert(data.detail || 'Failed to delete user.');
+        }
+      }
+    } catch (_) { alert('Error deleting user.'); }
     setDeleting(null);
   };
+
+  // ── Delete modals ──────────────────────────────────────────────────────────
+  const overlayStyle = { position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:9999,
+    display:'flex',alignItems:'center',justifyContent:'center' };
+  const modalStyle  = { background:dark?'#1e293b':'#ffffff',borderRadius:12,padding:'28px 28px 24px',
+    width:400,boxShadow:'0 20px 60px rgba(0,0,0,0.3)',border:`1px solid ${border}` };
+
+  const DeleteModals = () => (<>
+    {/* Blocked modal — clientadmin has existing users */}
+    {blockedDelete&&(
+      <div style={overlayStyle} onClick={()=>setBlockedDelete(null)}>
+        <div style={modalStyle} onClick={e=>e.stopPropagation()}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+            <div style={{width:36,height:36,borderRadius:8,background:dark?'#451a03':'#fff7ed',
+              display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+                <path d="M9 3l7 12H2L9 3z" stroke="#f97316" strokeWidth="1.5" strokeLinejoin="round"/>
+                <path d="M9 8v4M9 13.5v.5" stroke="#f97316" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,color:textPri}}>Cannot Delete Client Admin</div>
+              <div style={{fontSize:12,color:textSec,marginTop:1}}>{blockedDelete.name}</div>
+            </div>
+          </div>
+          <p style={{margin:'0 0 16px',fontSize:13,color:textSec,lineHeight:1.6}}>
+            This client admin has <strong style={{color:textPri}}>{blockedDelete.childCount} active user{blockedDelete.childCount!==1?'s':''}</strong> under their account.
+            All users must be deleted before this admin account can be removed.
+          </p>
+          <div style={{padding:'10px 14px',borderRadius:7,background:dark?'#0f172a':'#f8fafc',
+            border:`1px solid ${border}`,fontSize:12,color:textSec,lineHeight:1.5,marginBottom:20}}>
+            <strong style={{color:textPri}}>To delete this admin:</strong><br/>
+            1. Expand their user list<br/>
+            2. Delete each user individually<br/>
+            3. Then delete the admin account
+          </div>
+          <button onClick={()=>setBlockedDelete(null)}
+            style={{width:'100%',padding:'9px',background:'#1a3570',color:'white',border:'none',
+              borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+            Got it
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Confirm modal — standard deletion confirmation */}
+    {confirmDelete&&(
+      <div style={overlayStyle} onClick={()=>setConfirmDelete(null)}>
+        <div style={modalStyle} onClick={e=>e.stopPropagation()}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+            <div style={{width:36,height:36,borderRadius:8,background:dark?'#450a0a':'#fef2f2',
+              display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+                <path d="M3 5h12M7 5V3h4v2M14 5l-1 10H5L4 5" stroke="#dc2626" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,color:textPri}}>Delete User?</div>
+              <div style={{fontSize:12,color:textSec,marginTop:1}}>{confirmDelete.name}</div>
+            </div>
+          </div>
+          <p style={{margin:'0 0 20px',fontSize:13,color:textSec,lineHeight:1.6}}>
+            This will permanently delete <strong style={{color:textPri}}>{confirmDelete.name}</strong> and all their search history and feedback. This cannot be undone.
+          </p>
+          <div style={{display:'flex',gap:10}}>
+            <button onClick={()=>setConfirmDelete(null)}
+              style={{flex:1,padding:'9px',background:'transparent',color:textSec,
+                border:`1px solid ${border}`,borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',
+                fontSize:13,fontWeight:600,cursor:'pointer'}}>
+              Cancel
+            </button>
+            <button onClick={executeDelete}
+              style={{flex:1,padding:'9px',background:'#dc2626',color:'white',border:'none',
+                borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+              Delete permanently
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>);
 
   const statusBadge = (s) => {
     const cfg = {
@@ -2184,7 +2306,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
           {statusBadge(ca.status)}
 
           {/* Delete */}
-          <button onClick={e=>handleDelete(ca.id,e)} disabled={deleting===ca.id}
+          <button onClick={e=>handleDelete(ca.id,'clientadmin',ca.name,e)} disabled={deleting===ca.id}
             style={{background:'transparent',border:'none',cursor:'pointer',
               color:dark?'#475569':'#94a3b8',padding:4,
               display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
@@ -2291,7 +2413,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
         {statusBadge(u.status)}
 
         {/* Delete */}
-        <button onClick={e=>handleDelete(u.id,e)} disabled={deleting===u.id}
+        <button onClick={e=>handleDelete(u.id,'enduser',u.name,e)} disabled={deleting===u.id}
           style={{background:'transparent',border:'none',cursor:'pointer',
             color:dark?'#475569':'#94a3b8',padding:4,
             display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
@@ -2307,6 +2429,8 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
   };
 
   return (
+    <>
+    <DeleteModals/>
     <div style={{background:cardBg,border:`1px solid ${border}`,borderRadius:10,overflow:'hidden',
       boxShadow:dark?'none':'0 1px 4px rgba(0,0,0,0.04)'}}>
 
@@ -2385,6 +2509,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser }) {
         </>
       )}
     </div>
+    </>
   );
 }
 
@@ -3728,12 +3853,12 @@ function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel, cre
 
           {/* Name + Email */}
           <div style={{display:'flex',gap:12}}>
-            <div style={{flex:1}}><label style={lStyle}>Full name</label><input style={iStyle} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Jane Smith" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
-            <div style={{flex:1}}><label style={lStyle}>Work email</label><input style={iStyle} type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="j.smith@company.com" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
+            <div style={{flex:1}}><label style={lStyle}>Full name</label><input style={iStyle} autoComplete="off" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Jane Smith" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
+            <div style={{flex:1}}><label style={lStyle}>Work email</label><input style={iStyle} autoComplete="off" type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="j.smith@company.com" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
           </div>
 
           {/* Password */}
-          <div><label style={lStyle}>Password</label><input style={iStyle} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Set a strong password" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
+          <div><label style={lStyle}>Password</label><input style={iStyle} autoComplete="new-password" type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Set a strong password" onFocus={e=>e.target.style.borderColor='#1855d4'} onBlur={e=>e.target.style.borderColor=border}/></div>
 
           {/* Client — editable for superadmin, read-only badge for clientadmin */}
           {isSuperAdmin?(
@@ -4083,7 +4208,7 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
       </div>
 
       {/* ── Tab content ── */}
-      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={onNavigateToUser}/>}
+      {tab==='users'&&<UserTable users={users} dark={dark} authToken={authToken} onRefresh={fetchUsers} onSelectUser={onNavigateToUser} isSuperAdmin={isSuperAdmin}/>}
       {tab==='analytics'&&(isSuperAdmin
         ? <AnalyticsTab dark={dark} authToken={authToken}/>
         : <ClientAnalyticsTab dark={dark} authToken={authToken}/>

@@ -517,9 +517,46 @@ def get_current_user(
 
 
 def delete_user(email: str) -> None:
-    """Permanently delete a user record. Admin use only."""
-    table = get_dynamo().Table(USERS_TABLE)
-    table.delete_item(Key={"userId": email})
+    """
+    Deprovision a user by removing their record from encodermatch_users.
+
+    History and feedback rows in the per-client DynamoDB tables are intentionally
+    retained — they remain queryable by superadmin for analytics and auditing
+    even after the account is removed. Only the login credentials and access
+    configuration are deleted.
+
+    The per-client tables (encodermatch_history_{slug}, encodermatch_feedback_{slug})
+    are NOT dropped when the last user of a client is deleted — they must be
+    removed manually via the AWS console if the client is fully offboarded.
+    """
+    dynamo = get_dynamo()
+
+    # Resolve slug before deleting (needed for the last-user warning below)
+    user = get_user(email)
+    slug = _client_slug(
+        (user or {}).get("client", ""),
+        (user or {}).get("role", "enduser"),
+    ) if user else "unknown"
+
+    # ── Delete user record (credentials + access config) ──────────────────
+    dynamo.Table(USERS_TABLE).delete_item(Key={"userId": email})
+
+    # ── Warn if this was the last user of the client (I-14) ───────────────
+    # Per-client DynamoDB tables are retained for audit — must be removed
+    # manually via the AWS console if the client is fully offboarded.
+    try:
+        remaining = [
+            u for u in get_all_users_for_client((user or {}).get("client", ""))
+            if u.get("userId") != email
+        ]
+        if not remaining and slug not in ("unknown", "admin"):
+            logging.getLogger("auth").warning(
+                f"[delete_user] Last user of client slug '{slug}' deleted. "
+                f"Tables encodermatch_history_{slug} and encodermatch_feedback_{slug} "
+                f"are retained and must be removed manually if the client is offboarded."
+            )
+    except Exception:
+        pass  # informational only — never block deletion
 
 
 def get_all_users() -> list:

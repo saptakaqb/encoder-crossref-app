@@ -140,9 +140,26 @@ logging.basicConfig(
 )
 log = logging.getLogger("db_load")
 
-# Loaded after logging is configured so the startup confirmation/warning
-# appears in ECS logs with the correct format.
-POSITAL_EXITING_PARTS: frozenset = _load_posital_exiting()
+# Initialised empty — populated by load_posital_lifecycle_filter() called from
+# main.py startup(). Never called at module level to avoid blocking import on
+# an S3 network call before uvicorn has even started.
+POSITAL_EXITING_PARTS: frozenset = frozenset()
+
+
+def load_posital_lifecycle_filter() -> None:
+    """
+    Populate POSITAL_EXITING_PARTS from the Posital Bronze2 CSV on S3.
+
+    Called once from main.py startup() — NOT at module import time.
+    Runs in the startup context so a slow/failed S3 call never blocks the
+    Python import chain. On failure the filter stays empty and the app
+    continues normally (Exiting products appear in results but are not
+    a correctness issue — just a UX concern).
+    """
+    global POSITAL_EXITING_PARTS
+    result = _load_posital_exiting()
+    POSITAL_EXITING_PARTS = result
+    print(f"  Posital lifecycle filter: {len(result):,} Exiting parts loaded.", flush=True)
 
 # ── S3 config ─────────────────────────────────────────────────────────────────
 S3_BUCKET  = os.environ.get("S3_BUCKET",  "aqb-data-analytics-demo")
