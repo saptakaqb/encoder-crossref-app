@@ -1,395 +1,517 @@
 # EncoderMatch — Claude Code Context
-**Project:** AI-powered industrial encoder cross-reference tool  
-**Company:** AQB Solutions  
-**Last updated:** June 05, 2026  
+**Company:** AQB Solutions Private Ltd. | **Version:** v2.4.1 | **Updated:** June 23, 2026
+**Deploy status:** 12 files changed locally — NOT yet deployed to ECS (last deploy ~June 4, 2026)
 
 ---
 
-## What This Project Is
+## 1. What This Project Is
 
-EncoderMatch takes a real encoder part number from one manufacturer and finds the best replacement candidates from other manufacturers, ranked by technical compatibility using a multi-tier weighted scoring engine.
+AI-powered industrial encoder cross-reference platform. Input: source encoder part number (EPC, Sick, Posital, Lika, Baumer, Kübler). Output: ranked Kübler replacement candidates scored across 13 parameters via T1 hard stops → T2 physical match (70%) → T3 secondary specs (30%). Each result card shows: match score (0–100%), field-by-field breakdown, product URL, AI explanation (Claude Haiku). Users are sales engineers replacing industrial encoders without manually comparing datasheets.
 
-Users are sales engineers and procurement teams replacing industrial encoders across brands without manually comparing datasheets.
-
----
-
-## Repository & Infrastructure
-
-| Item | Value |
-|---|---|
-| GitHub (personal) | `saptakaqb/encoder-crossref-app` |
-| GitHub (org) | `aqbsol/encoder-crossref-app` |
-| Branches | `main`, `kuebler`, `posital` |
-| ECS Cluster | `encoder-app-cluster` |
-| ECS Service | `encodermatch-service` |
-| Task Definition | `encodermatch-app` revision 6 (current) |
-| Fargate | 2 vCPU / 8 GB, port 8000 |
-| DUCKDB_MEMORY | 6 GB (env var) |
-| ECR | `155930759570.dkr.ecr.ap-south-1.amazonaws.com/encoder-crossref-app` |
-| S3 Bucket | `aqb-data-analytics-demo` |
-| S3 Root | `encoder_pipeline/` |
-| Region | `ap-south-1` |
-| EC2 (ETL only) | `encoder-crossref`, t3.small |
+**Active clients:** Posital (live, ECS service `encodermatch-service`) | Kübler (pending first deploy, `encodermatch-kubler-service`)
 
 ---
 
-## Key Files
+## 2. AWS Infrastructure (all ap-south-1 / Mumbai)
 
-```
-encoder_appv2/
-├── main.py                  # FastAPI app — all API endpoints
-├── db_load.py               # DuckDB connection, fetch_part, fetch_candidates, Posital lifecycle filter
-├── matcher.py               # T1/T2/T3 scoring engine + match_pair() pair utility
-├── matcher_config.json      # Scoring weights and T1 rules — edit weights here, not in code
-├── kubler_decoder.py        # Kübler real order code decoder (31 families, 2 paths)
-├── epc_decoder.py           # EPC real order code decoder (28 entries, 25 Silver families)
-├── auth.py                  # JWT auth, DynamoDB user/session/history management
-├── serializers.py           # serialize_source() and serialize_result()
-├── url_lookup.py            # Product URL resolution per manufacturer
-├── static/EncoderMatch.jsx  # Full React frontend (single file, no build step)
-├── static/index.html        # HTML shell for React app
-├── refresh_silver_ecs.py    # Trigger Silver hot-reload on ECS via API
-├── refresh_silver_local.py  # Trigger Silver hot-reload on local instance
-├── dynamo_setup.py          # One-time DynamoDB table creation utility
-├── sick_urls.csv            # Sick part_number -> product URL (loaded at startup)
-├── posital_urls.csv         # Posital part_number -> product URL (loaded at startup)
-├── epc_urls.csv             # EPC family override URLs (TRU-TRAC series)
-└── Dockerfile
-```
+**ECS:** cluster `encoder-app-cluster`, Fargate, 2vCPU/8GB, port 8000, health check `GET /health` start-period 120s. Posital service: `encodermatch-service` (live). Kübler service: `encodermatch-kubler-service` (to be created on next deploy). Task def: `encodermatch-app` rev 6. No Elastic IP — IPs are dynamic. Use `python refresh_silver_ecs.py --dry-run` to discover current IP.
+
+**ECR:** `155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app` — tagging: `latest` + `kubler-test-YYYY-MM-DD`. Old name `encoder-crossref-app` was wrong — all 7 references corrected June 22.
+
+**S3:** bucket `aqb-data-analytics-demo`, prefix `encoder_pipeline/`. Silver Parquet (Snappy, hive-partitioned): `silver/manufacturer=X/data.parquet`. Counts: baumer 422, epc 1,520,586, kubler 102,748, lika 7,299, posital 18,742, sick 9,240 — total ~1.65M rows, ~10.3MB. Bronze2 CSVs in `bronze2/`: kubler 1.7MB uncompressed, epc 14.3MB gzip, posital 25.1MB uncompressed (gzip pending), lika gzip, sick not stored (scraped directly to Silver).
+
+**DynamoDB (on-demand):** Global: `encodermatch_users` (PK: userId=email), `encodermatch_errors` (PK: userId, SK: timestamp). Per-client: `encodermatch_history_{slug}` (PK: userId, SK: timestamp), `encodermatch_feedback_{slug}` (PK: userId, SK: `{search_id}#{candidate_pn}`). Slugs: superadmin→`aqb_solutions`, Kübler→`kubler`, Posital→`posital`. Formula: `re.sub(r"[^a-z0-9]","_", client.lower().strip())`. Provisioned: users, errors, history/feedback for admin, aqb_solutions, posital. Kübler tables auto-created on first Kübler user login via `create_manufacturer_tables()` background thread. !! NEVER re-run `dynamo_setup.py` on live — `seed_users()` overwrites admin records unconditionally.
+
+**EC2:** `encoder-crossref`, t3.small (upgrade to t3.medium pending — OOMs on Playwright). SSH key: `C:\Users\sadhy\Downloads\encoder-crossref-key.pem`. Purpose: Bronze1 PDF extraction, Bronze2 CSV production, scraping.
+
+**Env vars (ECS task def):** `AWS_REGION=ap-south-1`, `DYNAMO_USERS_TABLE=encodermatch_users`, `S3_BUCKET=aqb-data-analytics-demo`, `S3_ROOT=encoder_pipeline`, `JWT_SECRET_KEY` (secret), `CLAUDE_API_KEY` (Anthropic key — TODO: move to Secrets Manager), `CORS_ORIGINS`. Local fallback: `config_claude.py` (gitignored) holds `CLAUDE_API_KEY` and `MODEL = "claude-haiku-4-5-20251001"`.
 
 ---
 
-## Silver Layer (as of June 05, 2026)
+## 3. Key Files
 
-| Manufacturer | Rows | Status |
+| File | Size | Purpose |
 |---|---|---|
-| EPC | 1,520,586 | Complete |
-| Kübler | 102,748 | Complete |
-| Posital | 18,742 | Complete |
-| Sick | 7,352 | Complete |
-| Lika | 4,072 | Complete |
-| **Total** | **1,653,500** | |
-
-**S3 paths:**
-- Silver: `encoder_pipeline/silver/manufacturer={x}/data.parquet` (lowercase partition keys)
-- Bronze2: `encoder_pipeline/bronze2/{manufacturer}/`
-- Posital Bronze2: `encoder_pipeline/bronze2/posital/posital_raw_full.csv` (lifecycle filter reads from here)
-
-**Future manufacturers** already in `MFR_DISPLAY` in `main.py` (ready when Silver partitions added):
-`nidec`, `baumer`, `wachendorff`, `pepperl_fuchs`
-
----
-
-## Architecture — Match Flow
-
-```
-POST /api/match
-  → auth + quota check (DynamoDB)
-  → fetch_part(source_pn, source_mfr)      # decoder + CPR override
-  → fetch_candidates(target_mfr, ...)      # SQL T1 pre-filter + IP floor + housing pre-filter
-  → filter Posital Exiting (POSITAL_EXITING_PARTS)
-  → apply_t1_python_rules()                # 5 T1 hard stops
-  → score_candidates()                     # vectorized numpy T2/T3
-  → filter total_score > 0                 # prevents 0% match cards (BUG-F1 fix)
-  → dedup_by_family()                      # one result per product family
-  → head(effective_top_n)                  # max 3 for enduser
-  → serialize_result() × N
-  → add_history() (DynamoDB)
-  → return JSON
-```
-
-**dedup_by_family():** Keeps one row per `product_family`, highest total_score. Without it, all top-N slots fill with variants of the same family. The `top_n * 3` fetch multiplier in `main.py` gives dedup headroom.
+| `main.py` | 60KB | All FastAPI endpoints + orchestration |
+| `auth.py` | 22KB | JWT, DynamoDB user/session/history/feedback ops |
+| `matcher.py` | 56KB | T1/T2/T3 scoring engine (fully config-driven) |
+| `matcher_config.json` | 9KB | All scoring weights, T1 rules, compat matrices — edit here, no code change needed |
+| `db_load.py` | 46KB | DuckDB 3-tier connection, Silver S3 download, fetch_part/candidates |
+| `serializers.py` | 70KB | Result card + source card JSON, Kübler display order codes (31 families) |
+| `kubler_decoder.py` | 126KB | Decodes Kübler real order codes (31 families, Path A + B) |
+| `epc_decoder.py` | 43KB | Decodes EPC real order codes (28 entries, 25 families) |
+| `url_lookup.py` | 8KB | Product URL resolution per manufacturer |
+| `static/EncoderMatch.jsx` | 310KB | Entire React frontend — single file, no build step |
+| `static/logo2.png` | 31KB | AQB logo — PNG not webp (Dockerfile COPY fixed Jun 22 — was BLOCKING) |
+| `dynamo_setup.py` | 7KB | ONE-TIME ONLY — creates DynamoDB tables + seeds superadmin accounts |
+| `refresh_silver_ecs.py` | 4KB | Hot-reload Silver on ECS without redeploy (auto-discovers task IP). WARNING: has hardcoded EMAIL + PASSWORD — move to env var |
+| `kubler_handover_tests.py` | — | Post-deploy end-to-end test suite (self-contained, fill in 3 values) |
 
 ---
 
-## API Endpoints
+## 4. Deploy Status — 12 Undeployed Files
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `/api/auth/login` | — | Login → JWT + user info |
-| GET | `/api/auth/me` | user | Current user info (daily quota) |
-| POST | `/api/auth/heartbeat` | user | Increment time_spent_minutes (called every 5 min) |
-| POST | `/api/match` | user | Run cross-reference match |
-| POST | `/api/explain` | — | Claude AI explanation for one result |
-| GET | `/api/manufacturers` | user | List Silver manufacturers (auto-discovers from partitions) |
-| GET | `/api/parts/detect` | user | Auto-detect manufacturer from part number fragment |
-| GET | `/api/parts` | user | Browse available parts in Silver |
-| GET | `/api/history` | user | User's search history |
-| POST | `/api/feedback` | user | Thumbs up/down per result card |
-| DELETE | `/api/feedback` | user | Remove feedback |
-| GET | `/api/feedback/{search_id}` | user | Fetch feedback for a search |
-| POST | `/api/admin/users` | admin | Create new enduser |
-| GET | `/api/admin/users` | admin | List users |
-| PUT | `/api/admin/users/{id}` | admin | Update user constraints |
-| DELETE | `/api/admin/users/{id}` | admin | Delete user |
-| GET | `/api/admin/users/{email}/history` | admin | Per-user history |
-| GET | `/api/admin/users/{email}/errors` | admin | Per-user error log |
-| GET | `/api/admin/users/{email}/feedback` | admin | Per-user feedback |
-| POST | `/api/admin/refresh-silver` | superadmin | Hot-reload Silver from S3 |
-| GET | `/api/admin/analytics` | superadmin | Aggregated search analytics |
-| GET | `/health` | — | App health check |
-| GET | `/health/db` | — | DuckDB Silver row counts |
+All changes are local only. Last ECS deploy was ~June 4.
 
----
-
-## Scoring Weights
-
-**T2 (70% of final score):**
-| Field | Weight |
+| File | Change |
 |---|---|
-| cpr_values | 0.30 |
-| ip_rating | 0.20 |
-| connection_type_canonical | 0.15 |
-| output_circuit_canonical | 0.15 |
-| housing_diameter_mm | 0.10 |
-| shaft_bore_diameter_mm | 0.10 |
-
-**T3 (30% of final score):**
-| Field | Weight |
-|---|---|
-| supply_voltage | 0.25 |
-| sensing_method | 0.20 |
-| operating_temp_max_c | 0.15 |
-| shock_resistance_ms2 | 0.15 |
-| shaft_load_radial_n | 0.10 |
-| vibration_resistance_ms2 | 0.10 |
-| connector_pins | 0.05 |
-
-**T1 Hard Stops** (instant disqualification):
-- `shaft_type` exact match (skipped if either side is empty)
-- `shaft_bore_diameter_mm` within ±10% (hollow only, skipped if solid source)
-- `output_voltage_class` forbidden pairs (only low↔high pairs — TTL/universal/analog pairs MISSING, see Known Issues)
-- `housing_diameter_mm` within ±10% (solid only, skipped if hollow or either side is null)
-- `connection_type_canonical` forbidden pairs (M12↔MS/MIL, M23↔DSub blocked; cable exempt)
-
-**Score columns stored as:** `sc_t2_{field}`, `sc_t3_{field}`, `t2_score`, `t3_score`, `total_score`
+| `Dockerfile` | `logo2.webp` → `logo2.png` — **BLOCKING fix, already applied** |
+| `CLAUDE.md` | ECR repo name corrected (7 references) |
+| `main.py` | I-9 role guard, I-10/11 cross-client guards, I-12 user_creation_limit enforcement, I-22 zero-score backfill, UpdateUserRequest (Jun 17) |
+| `auth.py` | I-13 cascade delete (history+feedback on user delete), I-14 last-client warning, `_client_slug` routing fix (Jun 16) |
+| `static/EncoderMatch.jsx` | Jun 22 cosmetic fixes (footer version, selector footer text, history subtitle count) + all Jun 18 changes |
+| `matcher.py` | `_t1_exact_match_except_cable()`, T1_RULE_REGISTRY, cable T2 weight redistribution |
+| `matcher_config.json` | connection_type T1 rule: `forbidden_pairs` → `exact_match_except_cable` |
+| `static/index.html` | Favicon cache-bust link tag |
+| `dynamo_setup.py` | "DO NOT RE-RUN" safety warning |
+| `serializers.py` | Kübler display order codes, 31 families |
+| `url_lookup.py` | Kübler URL slug fixes |
+| `CHANGELOG.md` | v2.4.1 entry |
 
 ---
 
-## DuckDB — Three-Tier Connection
-
-1. Local `.db` file — Silver loaded into DuckDB native format (~30× faster) — `/tmp/silver/encoders.db`
-2. Local Parquet VIEW — `/tmp/silver/manufacturer=*/data.parquet` (fallback if .db missing)
-3. S3 httpfs — Last resort if no local files exist
-
-**Important:**
-- `get_cached_connection()` = module-level singleton for Fargate API process — **NEVER close it**
-- `get_connection()` = opens a new connection, for one-off CLI scripts only (caller must close)
-- Silver `.db` is built from Parquet on startup; `reload_silver()` rebuilds it without ECS restart
-- DynamoDB data (users, history, feedback, errors) **persists across ECS restarts** — only in-memory state resets: DuckDB connection, `_available_mfrs`, `POSITAL_EXITING_PARTS`
-
----
-
-## Fetch Part — Lookup Stages
-
-```
-Stage 1: Exact part_number match in Silver
-Stage 2: Kübler real order code decode → targeted SQL (5-attempt widening)
-         → CPR override: cpr_values overridden to [specific_ppr] so matcher scores
-           "does candidate cover THIS PPR?" rather than full family range
-Stage 2b: EPC real order code decode → targeted SQL (5-attempt widening)
-           → same CPR override
-Stage 2c: Lika positional decode (family=token[0], CPR=token[2] if decimal)
-Stage 3: PPR-aware family lookup (cpr_values LIKE '%ppr%' OR ppr_range covers ppr)
-Stage 4: Family-only LIKE fallback
-```
-
-**SQL widening attempts (Kübler/EPC):**
-1. bore + output + supply(min+max) + connection + IP
-2. bore + output + supply_min + connection (drop supply_max + IP)
-3. bore + output + connection (drop supply)
-4. bore + output (drop connection)
-5. bore only (last resort)
-
----
-
-## Fetch Candidates — SQL Pre-filters
-
-**Hard stops in SQL** (row-group pruning enabled by Silver sort order):
-- `manufacturer = target`
-- `shaft_type = source_shaft_type` (skipped if source shaft_type is empty)
-- `output_voltage_class = source_class` (exact match — catches TTL/universal/analog differences)
-
-**Soft IP floor:** `ip_rating >= src_ip - 2` (excludes clearly below-IP candidates; NULL kept)
-
-**Housing pre-filter (±15mm absolute, solid shaft only):**
-- `housing_diameter_mm BETWEEN src_housing - 15 AND src_housing + 15`
-- NULL housing_diameter_mm candidates always kept (NEMA flanges, spring-element flanges)
-- Skipped for hollow shaft sources (mounting via torque arm, housing OD is not a hard constraint)
-- Skipped when source housing is null (e.g., Kübler A020 — see Known Issues)
-
-**Posital lifecycle filter** (applied after SQL, not in SQL):
-- `POSITAL_EXITING_PARTS` frozenset loaded from Bronze2 CSV at module import
-- 7,492 Exiting products filtered out of 18,742 total Posital rows
-- **Must be assigned AFTER `logging.basicConfig`** — earlier placement silently swallows startup log
-
----
-
-## User Roles & Access Control
-
-| Role | Description |
-|---|---|
-| `superadmin` | Full access to all manufacturers, all admin endpoints |
-| `clientadmin` | Admin for their client's users, can create/manage endusers |
-| `enduser` | Restricted to `allowed_sources` + `allowed_targets` pool |
-
-**Enduser access control:**
-- `allowed_sources` and `allowed_targets` are independent multi-select lists
-- Source dropdown shows combined `allowed_sources + allowed_targets` pool (bidirectional — any manufacturer in either pool can be the source)
-- Target checkboxes show `allowed_targets` minus current source selection
-- Auto-detection (`/api/parts/detect`) searches combined `allowed_sources + allowed_targets`
-- `direction` field on user record: `"source_only"` (default) or `"bidirectional"`
-- Max 3 results per search (enduser cap; admins get requested `top_n`)
-- Daily search limit enforced, resets at UTC midnight
-
-**Admins:**
-- Bypass `allowed_sources/allowed_targets` — use `VALID_MANUFACTURERS` (auto-discovered from Silver)
-- `VALID_MANUFACTURERS` populated at startup from Silver; fallback hardcoded set: `{kubler, epc, sick, posital, lika}`
-
----
-
-## DynamoDB Tables
-
-| Table | Keys | Purpose |
-|---|---|---|
-| `encodermatch_users` | hash: userId | User accounts, quota, session tokens, role |
-| `encodermatch_history_{slug}` | hash: userId, range: timestamp | Per-client search history |
-| `encodermatch_feedback_{slug}` | hash: userId, range: sk=`search_id#candidate_pn` | Per-client thumbs up/down |
-| `encodermatch_errors` | hash: userId, range: timestamp | App error log |
-
-- Slug derivation: superadmin/clientadmin → `"admin"`, enduser → sanitised `client` name
-- Per-client history + feedback tables auto-created on user registration (background thread)
-- `add_history()` is **synchronous** (not fire-and-forget) — causes ~2.3s latency per search (BUG-F2)
-
----
-
-## Manufacturer Decoders
-
-### Kübler (`kubler_decoder.py`)
-**Path A** (numeric prefix `8.FAMILY.opts.ppr` — 31 families):
-- Slot positions: [flange, shaft_bore, output_type, connection_type]
-- Special slot types: `shaft_bore_with_ip` (5823/5824/5825), `shaft_bore_with_type` (5834/5834FS2/5834FS3)
-- `fixed_specs`: KIS50/KIH50 always ip_rating=65
-- Families with "05" prefix: 2400/2420 miniature encoders
-
-**Path B** (K-series: `K58I.Oxxx.PPR.7chars.5chars[.cable]`):
-- K58I-PR: detected via seg1[1:3]=="PR"; silver_family="K58I-PR"
-- K80I: hollow_thru only; K80I-PR adds extended PPR range
-- Version codes in seg3[1:3]: H1/H2/C1/C2→hollow_thru; S1/S3→solid
-- Bore codes 06/08/10/12/1A/2A overlap solid and hollow — must use version code to disambiguate
-
-**`KUBLER_FAMILY_ALIASES`**: maps order code token → Silver product_family (e.g. "5814"→"Sendix 5814", "7000"→"Sendix 7000")
-
-**`validate_decoders()`**: runs every sample code at API startup, asserts expected values — fails startup if any decoder is broken.
-
-### EPC (`epc_decoder.py`)
-**Data-driven:** each family is an `EpcFamilyConfig` dataclass with position layout.
-- 28 decoder entries across 25 Silver families
-- `shaft_type_by_code`: 755A — shaft codes (07/08/06/32/20/19) → solid; all others → hollow_blind
-- `shaft_variant_map`: 260 — B→hollow_blind, T/R→hollow_thru (at pos2)
-- `has_input_voltage_pos`: 15S/15T/25T/etc. — V5 token at pos5 clips supply_voltage_max to 5.25V
-- Trailing token scanner for optional temp/sealing tokens
-- CPR up to 6 digits (TRP: 100,000 max)
-
----
-
-## Critical Coding Rules
-
-1. **Never use `int(v)` directly** — always use `safe_int()` which does `int(float(v))`. DuckDB returns all-varchar from Silver.
-2. **`cpr_values` is always a JSON array string** — never one row per CPR value. Use `json.loads()` to parse.
-3. **`resolution_ppr` integer field is retired** — do not use. Use `cpr_values` JSON array.
-4. **DuckDB connections are not thread-safe** — never cache a new connection per request. Use `get_cached_connection()`.
-5. **Silver `part_number` is a synthetic pipeline key** — not a real manufacturer order code. Real order codes are decoded by manufacturer decoders.
-6. **`union_by_name=true` required** in `read_parquet` to handle schema merging across manufacturer partitions.
-7. **Push-Pull `output_voltage_class` = always "universal"** (never "HTL").
-8. **Shock/vibration values are always in m/s²** in Silver — EPC g-values converted during ETL (×9.81).
-9. **`POSITAL_EXITING_PARTS` must be assigned AFTER `logging.basicConfig`** — otherwise startup log is silently swallowed.
-10. **`SELECT *` should be avoided** — pull only the ~25 columns needed by scorer.
-11. **`output_voltage_class` in Silver stores:** `"TTL"`, `"universal"`, `"analog"` for EPC/Kübler/Sick. Posital/Lika legacy Bronze2 used `"low"/"high"`. The SQL `output_voltage_class = ?` pre-filter works because it matches whatever is in Silver exactly. The Python T1 `forbidden_pairs` only has `["low","high"]` pairs — it is dead code for EPC/Kübler/Sick as the source.
-12. **EPC synthetic `part_number` has `"EPC-"` prefix** — `_make_display_code()` in serializers strips it for display. Users enter codes WITHOUT the prefix (e.g. `15S-21-S-1024-A-OC-M1-F00-S`).
-13. **Score columns are named `sc_t2_{field}` and `sc_t3_{field}`** (no leading underscore). The old `_t2_{field}` naming was a bug fixed before current version.
-
----
-
-## Known Issues (Carry Forward)
-
-| Issue | Impact | Fix |
-|---|---|---|
-| Kübler A020 `housing_diameter_mm` = null in Silver | Housing SQL pre-filter skipped, T2 score inflated | Populate 24.0mm in Silver ETL |
-| `output_voltage_class` forbidden_pairs uses `"low"/"high"` only | Dead code for EPC/Kübler/Sick — SQL pre-filter masks it in normal flow; `match_pair()` also unaffected in current tests | Add `TTL/universal/analog` pairs to `matcher_config.json` |
-| Posital `is_discontinued`/`replaced_by` not in Silver | UCD→UTD replacement not surfaced (both share family "Cube and Square", equal scores) | Re-scrape Posital, add fields to Silver schema |
-| `_available_mfrs` field names inconsistent post-refresh | Database tab may misrender after Refresh Data: startup uses `id/display/count`, post-refresh uses `id/label/rows` | Align field naming |
-| BUG-F2: ~2.3s DynamoDB latency per search | Slow search response | Make `add_history` fire-and-forget |
-| BUG-F3: Kübler A020 housing null | See above | ETL fix |
-| BUG-U5: T2 null score bar renders as red 0% | Visual confusing for enduser | Verify with live A020 test case |
-| BUG-U6: End-user result cap of 3 not surfaced in UI | User confused why only 3 results | Hide or label "Results to Show" dropdown for endusers |
-| Elastic IP not assigned | ECS public IP changes on Fargate restart | Assign Elastic IP |
-| GitHub push pending | Recent changes not on remote | `git push` when ready |
-
----
-
-## Pending Pipeline Work
-
-- EPC families still needing Bronze1/Bronze2: 770 NEMA expansion; 8 families (702, 702 Motor Mount, 711, 715, 716, 758, 775, 776)
-- Kübler Bronze2 gzip removal from `datasheet_to_csv_pipeline.py`
-- Kübler 7100/7120/2430/2440/H120 families queued for Silver
-- Absolute encoder Silver schema design (next major schema work)
-- Posital `is_discontinued`/`replaced_by` fields — requires re-scrape
-
----
-
-## Deployment Commands
-
-```bash
-# Build and push to ECR
-aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 155930759570.dkr.ecr.ap-south-1.amazonaws.com
-docker build -t encoder-crossref-app . --no-cache
-VERSION_TAG="v$(date +%m_%d)"
-docker tag encoder-crossref-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encoder-crossref-app:latest
-docker tag encoder-crossref-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encoder-crossref-app:$VERSION_TAG
-docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encoder-crossref-app:latest
-docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encoder-crossref-app:$VERSION_TAG
-
-# Deploy
-aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --force-new-deployment --region ap-south-1
-
-# Health check after deploy
-curl http://<ECS_PUBLIC_IP>:8000/health/db
-```
-
----
-
-## Pair Scoring CLI (dev/testing only)
+## 5. Deploy Procedure (Windows PowerShell)
 
 ```powershell
-python matcher.py `
-  --part "8.7000.1242.2048" `
-  --source kubler `
-  --target posital `
-  --target-part "UTD-IPT0Z-XXXXX-4A7S-PRD"
+# ECR login
+aws ecr get-login-password --region ap-south-1 | `
+  docker login --username AWS --password-stdin `
+  155930759570.dkr.ecr.ap-south-1.amazonaws.com
+
+# Build + tag + push
+docker build -t encodermatch-app . --no-cache
+$TAG = "kubler-test-2026-06-24"
+docker tag encodermatch-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:latest
+docker tag encodermatch-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:$TAG
+docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:latest
+docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:$TAG
+
+# Deploy Posital (update existing)
+aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --force-new-deployment --region ap-south-1
+
+# Deploy Kübler (CREATE NEW — service doesn't exist yet)
+aws ecs create-service --cluster encoder-app-cluster --service-name encodermatch-kubler-service `
+  --task-definition encodermatch-app --desired-count 1 --launch-type FARGATE `
+  --network-configuration "awsvpcConfiguration={subnets=[<SUBNET_ID>],securityGroups=[<SG_ID>],assignPublicIp=ENABLED}" `
+  --region ap-south-1
+
+# Get task IP (wait 90s after deploy for Silver download + DB build)
+python refresh_silver_ecs.py --dry-run
+
+# Health check
+curl http://<ECS_IP>:8000/health/db
+# Expected: {"status":"ok", all 6 manufacturers, total_rows ~1.65M}
+
+# Run handover tests
+python kubler_handover_tests.py
 ```
 
-Test result (Jun 05): Kübler `8.7000.1242.2048` → Posital `UTD-IPT0Z-XXXXX-4A7S-PRD` = **82.5%** (T2=86.8%, T3=72.4%). Key misses: IP67 vs IP66 (T2 IP=0.500), optical vs magnetic (T3 sensing=0.500), shock 2500 vs 981 m/s² (T3 shock=0.392).
+**Local dev:**
+```powershell
+cd C:\Users\sadhy\ai_cross_reference\incremental\encoder_appv2
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Kill stuck uvicorn:
+taskkill /IM python.exe /F
+Remove-Item "C:\tmp\silver\encoders.db" -ErrorAction SilentlyContinue
+```
 
 ---
 
-## Key Design Decisions
+## 6. Superadmin Credentials (from dynamo_setup.py)
 
-1. **DuckDB singleton** — never close; `get_cached_connection()` for the API process
-2. **Silver .db file (~30× faster)** built at startup; hot-reload via `/api/admin/refresh-silver`
-3. **CPR override** — when user enters a specific order code (PPR known), `cpr_values` overridden to `[ppr]` so scoring is "does candidate cover THIS PPR?" not "does it cover the full family range?"
-4. **Posital exiting filter** — applied post-SQL (lifecycle not in Silver schema); frozenset at module level
-5. **Per-client DynamoDB tables** — privacy isolation between clients; slug derived from client name
-6. **Daily search limits** (not lifetime) with UTC midnight reset; atomic DynamoDB conditional update
-7. **Admins bypass allowed_sources/targets** — use `VALID_MANUFACTURERS` (auto-discovered from Silver)
-8. **Zero-score filter** — `combined[combined["total_score"] > 0]` prevents 0% match cards
-9. **Null weight redistribution** — null fields' weights redistributed proportionally in `_weighted_score()`
-10. **Bidirectional enduser search** — `allowed_sources + allowed_targets` pool is combined for source dropdown and auto-detect
+| Email | Password |
+|---|---|
+| `akshay.b@aqbsolutions.com` | `akshay@admin9999` |
+| `saptak.s@aqbsolutions.com` | `saptak@admin1111` |
 
 ---
 
-## ETL Rules Documents
+## 7. Three-Tier Role System & Auth
 
-- `ENCODER_ETL_EXTRACTION_RULES.md` — core rules for all manufacturers
-- `EPC_EXTRACTION_RULES.md` — EPC-specific Bronze1/Bronze2 rules
-- `KUBLER_EXTRACTION_RULES.md` — Kübler-specific rules
+**Roles:** superadmin (blue `#2563eb`) → clientadmin (purple `#7c3aed`) → enduser (teal `#0891b2`, child of CA) / enduser (emerald `#059669`, direct SA-created).
+
+**Security guards (I-9 to I-12, enforced at API since Jun 22):**
+- Clientadmin can ONLY create `enduser` → 403 otherwise
+- Clientadmin cannot delete superadmin or other clientadmins → 403
+- Clientadmin cannot delete/update cross-client users → 403
+- `user_creation_limit` enforced at API: count `created_by == caller.userId` before write
+- Clientadmin cannot PUT `searches_limit`, `allowed_results`, `user_creation_limit` → 403 (superadmin-only fields)
+- Superadmin cannot delete clientadmin with active child users → 409
+
+**Full permission matrix:**
+| Operation | superadmin | clientadmin | enduser |
+|---|---|---|---|
+| Create clientadmin | ✅ | ❌ 403 | ❌ 403 |
+| Create enduser | ✅ | ✅ within limit | ❌ 403 |
+| Delete superadmin | ✅ | ❌ 403 | ❌ 403 |
+| Delete own-client enduser | ✅ | ✅ | ❌ 403 |
+| Delete cross-client user | ✅ | ❌ 403 | ❌ 403 |
+| Delete CA with children | ❌ 409 | ❌ | ❌ |
+| Delete self | ❌ 400 | ❌ 400 | ❌ 400 |
+| Update user | ✅ any | ✅ own-client endusers only | ❌ |
+
+**Auth details:**
+- Password: SHA-256 with salt `"encodermatch_2026"` → `hashlib.sha256(f"encodermatch_2026{password}".encode()).hexdigest()`
+- JWT: HS256, 24h expiry, claims: `sub`=email, `sid`=session_id
+- Single-session: login writes UUID to `active_session_id` in DynamoDB; every request validates token `sid` matches DB value → mismatch = 401 "Session superseded"
+- Search limit: atomic DynamoDB `ADD searches_used_today :one` with `ConditionExpression searches_used_today < :limit` → `ConditionalCheckFailedException` = 429. Day rollover: SET to 1 + stamp `last_search_date`. `status=locked` users can login but 429 on first search (by design — locked check is in `increment_search_count`, not login). `status=invited` blocked at login (403).
+- Heartbeat: `POST /api/auth/heartbeat` every 5min (tab-visible only) → atomic `ADD total_time_spent_minutes :5`
+
+---
+
+## 8. Match Flow (POST /api/match)
+
+```
+MatchRequest: {part_number, source_mfr, target_mfrs, top_n, custom_weights}
+
+1. Access control:
+   superadmin → VALID_MANUFACTURERS (all)
+   others → allowed_sources / allowed_targets from user record
+   Guard: source_mfr in allowed_sources (403)
+   Guard: effective_targets ∩ allowed_targets (403 if empty)
+   Guard: target ≠ source (400)
+   Cap: effective_top_n = min(body.top_n, user.allowed_results)
+
+2. increment_search_count(email) → 429 if at limit or locked
+
+3. For each target_mfr (sequential, not async):
+     match(part_number, source_mfr, target_mfr, top_n*3, custom_weights)
+       → fetch_part()        returns source dict (with CPR override)
+       → fetch_candidates()  SQL pre-filter + POSITAL_EXITING_PARTS filter
+       → apply_t1_python_rules()  5 T1 checks, returns filtered DataFrame
+       → score_candidates()  vectorized T2/T3 numpy scoring
+     Track targets_with_scored (before zero-score drop)
+     Accumulate all_scored DataFrames, no_match_reasons dict
+
+4. Combine → sort by total_score DESC → drop rows where total_score == 0
+
+5. dedup_by_family() → one row per product_family (best score)
+   head(effective_top_n)
+
+6. serialize_result() × N → results_json
+
+7. I-22 backfill: for targets in targets_with_scored but absent from results_json
+   AND absent from no_match_reasons → inject "zero_score" reason
+
+8. add_history() → DynamoDB (try/except → [WARN] log, never kills search)
+
+9. Return: {search_id, source, results, result_count, no_match_reasons,
+            searches_used, searches_limit, searches_remaining, elapsed_s, connection_type}
+```
+
+`_match_request_count` module-level: first call = "cold", rest = "warm" (reported in response). `custom_weights` stored in history as `w_t2_{field}`, `w_t3_{field}` Decimal fields via `_resolve_weights()`.
+
+---
+
+## 9. Scoring Engine (matcher.py + matcher_config.json)
+
+### T1 Hard Stops — any failure = candidate excluded entirely
+All 5 implemented as named functions in `T1_RULE_REGISTRY`. Config-driven via `tier1_hard_stops` in matcher_config.json.
+
+| # | Field | Rule | Condition |
+|---|---|---|---|
+| 1 | `shaft_type` | `exact_match` | Skipped if either side empty/unknown |
+| 2 | `shaft_bore_diameter_mm` | `within_tolerance_pct` 10% | `hollow_only` — skipped for solid |
+| 3 | `output_voltage_class` | `forbidden_pairs` `[[low,high],[high,low]]` | Always applied |
+| 4 | `housing_diameter_mm` | `within_tolerance_pct` 10% | `solid_only` — skipped for hollow/null |
+| 5 | `connection_type_canonical` | `exact_match_except_cable` | Cable on either side → T1 skipped, falls to T2 |
+
+**Connection type dual role (v2.4.0):** Both sides specific connector (M12, M23, MS/MIL, etc.) → T1 enforces exact match AND T2 score set to NaN (0.15 weight redistributes proportionally to other 5 T2 fields via existing null-redistribution). Cable on either side → T1 skipped, T2 scores via `conn_compat_matrix` at 0.15 weight.
+
+### T2 Primary Score — 70% of final (weights sum to 1.0)
+| Field | Weight | Method |
+|---|---|---|
+| `cpr_values` | 0.30 | `cpr_list_intersection` |
+| `ip_rating` | 0.20 | `directional_gte` (step mode, tolerance=1, partial_score=0.5) |
+| `connection_type_canonical` | 0.15 | `conn_compat_matrix` (cable cases only; redistributed for specific connectors) |
+| `output_circuit_canonical` | 0.15 | `oc_compat_matrix` |
+| `housing_diameter_mm` | 0.10 | `housing_diameter_score` |
+| `shaft_bore_diameter_mm` | 0.10 | `bore_diameter_score` |
+
+### T3 Secondary Score — 30% of final (weights sum to 1.0)
+| Field | Weight | Method |
+|---|---|---|
+| `supply_voltage` | 0.25 | `voltage_range_overlap` (supply_voltage_min_v + supply_voltage_max_v) |
+| `sensing_method` | 0.20 | `exact_match_score` (exact=1.0, mismatch=0.5) |
+| `operating_temp_max_c` | 0.15 | `directional_gte` (ratio mode, 5°C tolerance) |
+| `shock_resistance_ms2` | 0.15 | `directional_gte` (ratio mode) |
+| `shaft_load_radial_n` | 0.10 | `directional_gte` (ratio mode) |
+| `vibration_resistance_ms2` | 0.10 | `directional_gte` (ratio mode) |
+| `connector_pins` | 0.05 | `connector_pins_score` (linear, max_diff=10) |
+
+**Final score = 0.70 × T2 + 0.30 × T3.** Directional: candidate exceeding source = 100%. Null fields → weight redistributed proportionally among non-null fields in same tier (`_weighted_score()`). Score columns: `sc_t2_{field}`, `sc_t3_{field}`, `t2_score`, `t3_score`, `total_score`.
+
+### Compatibility Matrices (matcher_config.json)
+**Output circuit** (`oc_compat_matrix`, default 0.0):
+Push-Pull↔TTL RS422=0.4 | Push-Pull↔OC=0.2 | TTL↔OC=0.1 | Sin/Cos only matches Sin/Cos=1.0
+
+**Connection type** (`conn_compat_matrix`, default 0.1, cable cases in T2 only):
+cable↔cable=1.0 | cable↔M12/M23/M8/MS-MIL=0.3 | M12↔M23=0.5 | M12↔M8=0.3 | M23↔MS-MIL=0.4
+
+**Scoring params:** `housing_diameter_tight_mm`=2.0, `housing_diameter_loose_mm`=5.0, `bore_diameter_tight_mm`=0.1, `bore_diameter_loose_mm`=2.0, `connector_pins_max_diff`=10
+
+**Config cache:** `_matcher_cfg` loaded once at startup (`load_config(CONFIG_PATH)`), never reloaded mid-run. `load_config()` validates T2 sum=1.0, T3 sum=1.0, tier2+tier3=1.0. `_validate_registries()` confirms all method/rule names registered. Adding NEW scoring method → register in `SCORING_REGISTRY` or `T1_RULE_REGISTRY`.
+
+### No-match reason codes
+`no_sql_candidates` | `shaft_type_no_match` | `bore_no_match` | `housing_no_match` | `voltage_class_incompatible` | `t1_no_match` | `zero_score` (v2.4.1 — candidates passed T1 but all scored 0) | `no_candidates` | `no_analog_output`
+
+---
+
+## 10. Database Layer (db_load.py)
+
+**3-tier connection:** (1) `/tmp/silver/encoders.db` DuckDB native TABLE (~30× faster than Parquet) → (2) `/tmp/silver/*.parquet` Parquet VIEW fallback → (3) S3 httpfs last resort.
+
+**Key functions:**
+- `get_cached_connection()` — singleton. **NEVER close this.** Used by all API requests.
+- `get_connection()` — new connection per call, for CLI scripts only (caller must close).
+- `download_silver_locally()` — boto3 S3 download with size-check (`os.path.getsize` vs S3 `ContentLength`, skips unchanged files), then calls `build_local_db()`. Takes 45–90s first run.
+- `reload_silver()` — called by `/api/admin/refresh-silver`. Re-downloads + rebuilds + resets cached connection.
+- `SILVER_VIEW` — query target: `"encoders"` (native TABLE, Tier 1) or `"encoders_view"` (Parquet VIEW, Tier 2).
+- `POSITAL_EXITING_PARTS` — frozenset loaded from Bronze2 CSV at module level. Applied post-SQL in `fetch_candidates()`. If S3 read fails → empty frozenset, filter silently disabled.
+- `LIKA_FAMILY_PREFIXES` / `BAUMER_FAMILY_PREFIXES` — frozensets for mfr_hint detection in `_parse_order_code()`.
+
+**fetch_part() lookup stage sequence:**
+1. Exact `part_number` match in Silver
+2. Kübler decoder → targeted SQL (5-attempt widening): bore+output+supply+conn+IP → drop supply_max+IP → drop supply → drop conn → bore only
+3. EPC decoder → same 5-attempt widening. CPR override: when PPR known, `cpr_values` overridden to `[specific_ppr]` so scorer asks "does candidate cover THIS PPR?" not full family range.
+4. Lika positional decode (family=token[0], CPR=token[2] if decimal)
+5. PPR-aware family lookup (`cpr_values LIKE '%ppr%'` OR ppr_range covers ppr)
+6. Family-only LIKE fallback
+
+**fetch_candidates() SQL pre-filters:** `manufacturer = target` | `shaft_type = source` (skipped if source empty) | `output_voltage_class = source` (exact match) | IP floor: `>= src_ip - 2` (NULL kept) | Housing: `±15mm` absolute (solid only, NULL candidates kept, skipped for hollow source or null source housing).
+
+---
+
+## 11. Silver Schema (42 columns)
+
+**Identity:** `manufacturer` (kubler/epc/sick/posital/lika/baumer), `part_number` (synthetic pipeline key — NOT real order code; EPC has `EPC-` prefix), `product_family`, `encoder_type` (always "incremental"), `sensing_method` (optical/magnetic), `source_datasheet`, `shaft_type` (solid/hollow_blind/hollow_thru).
+
+**Resolution:** `cpr_values` (JSON array string — always `json.loads()`; null for programmable), `ppr_range_min`, `ppr_range_max`, `is_programmable` (bool).
+
+**Output/Circuit:** `output_circuit_canonical` (TTL RS422/Push-Pull/Open Collector/Sin/Cos), `output_voltage_class` (low/universal/analog — **T1 field**), `supply_voltage_min_v`, `supply_voltage_max_v`, `num_output_channels` (A/AB/ABZ/ABZ+inv), `has_index` (bool), `pulse_frequency_max_kHz`, `power_consumption_max_mA`, `reverse_polarity_protection` (bool), `short_circuit_protection` (bool).
+
+**Housing:** `housing_diameter_mm` (float32, null for NEMA/spring-element), `flange_type_canonical` (servo/face_mount/nema/synchro/clamping/square/torque_stop_flexible/torque_stop_rigid/stator_coupling/spring_element_short/spring_element_long), `housing_material`, `flange_material`.
+
+**Shaft:** `shaft_bore_diameter_mm` (OD for solid, bore ID for hollow — **T1+T2 field**), `shaft_material`, `shaft_load_radial_n`, `shaft_load_axial_n`.
+
+**Environmental:** `ip_rating` (int32, e.g. 50/65/67), `operating_temp_min_c`, `operating_temp_max_c`, `shock_resistance_ms2` (**always m/s²** — EPC g-values ×9.81 at ETL), `vibration_resistance_ms2`.
+
+**Speed/Connection/Physical:** `max_speed_rpm`, `connection_type_canonical` (cable/M8/M12/M16/M23/MIL/terminal_block), `connector_pins` (null for cable), `startup_torque_nm`, `moment_of_inertia_gcm2`, `weight_kg`, `bearing_life_rev` (string), `mttfd_years`.
+
+**Kübler-only passthrough:** `output_code`, `connection_type_code` (raw Bronze1 option codes for display order code enrichment in serializers.py).
+
+`union_by_name=true` required in all `read_parquet()` — not all manufacturers populate all 42 columns.
+
+---
+
+## 12. Manufacturer Decoders
+
+### Kübler (kubler_decoder.py, 126KB)
+**Path A:** `8.FAMILY.OPTS.PPR` — 31 families. `KUBLER_FAMILY_ALIASES` maps order code token → Silver `product_family` (e.g. `"7000"`→`"Sendix 7000"`, `"5000"`→`"Sendix 5000"`, `"KIS40"`→`"KIS40"`). Option slots decoded positionally: [flange_code, shaft_bore_code, output_type_code, connection_type_code]. Special types: `shaft_bore_with_ip` (5823/5824/5825), `shaft_bore_with_type` (5834). `fixed_specs`: KIS50/KIH50 always ip_rating=65. Cable suffix (trailing `.0100` etc.) stripped before decode.
+
+**Path B:** K-series `K58I.Oxxx.PPR.7chars.5chars[.cable]`. K58I-PR: seg1[1:3]=="PR". Version codes in seg3[1:3]: H1/H2/C1/C2→hollow_thru; S1/S3→solid. Bore codes 06/08/10/12/1A/2A overlap solid and hollow — version code disambiguates.
+
+`validate_decoders()` runs all sample codes at startup, asserts expected values — fails startup if broken.
+
+**14 verified test codes (all pass as of Jun 22):**
+`8.KIH50.2631.1000` (KIH50, 1000PPR, h_thru 12.75mm) | `8.KIH50.2422.2048` (KIH50, 2048, h_thru 9.52mm) | `8.KIS40.1342.0500` (KIS40, 500, solid 6mm) | `8.KIS40.1342.1000` (KIS40, 1000, solid 6mm) | `8.KIH40.2442.1024` (KIH40, 1024, h_blind 8mm) | `8.KIH40.5462.1024` (KIH40, 1024, h_blind 8mm) | `8.KIS50.8122.2048` (KIS50, 2048, solid 6mm) | `8.KIS50.8D14.1024` (KIS50, 1024, solid 10mm) | `8.KIS50.B62P.1000` (KIS50, 1000, solid 8mm) | `8.KIH50.2911.1200` (KIH50, 1200PPR, h_thru 8mm — decoder OK, no Posital match for PPR=1200) | `8.KIH50.2344.0500` (KIH50, 500, h_thru 10mm) | `8.7000.1242.2048` (Sendix 7000, 2048, solid 10mm ATEX) | `8.7000.121B.1024.0100` (Sendix 7000, 1024, cable suffix stripped) | `8.5000.7358.1024` (Sendix 5000, 1024, solid 10mm)
+
+### EPC (epc_decoder.py, 43KB)
+Data-driven: each family is `EpcFamilyConfig` dataclass with positional layout. 28 entries, 25 Silver families. `shaft_type_by_code` for 755A. `shaft_variant_map` for 260 (B→hollow_blind, T/R→hollow_thru at pos2). `has_input_voltage_pos` for 15S/15T/25T — V5 token clips supply_voltage_max to 5.25V. EPC Silver `part_number` has `EPC-` prefix — users enter codes WITHOUT it (e.g. `755A-07-S-1024-R-HV-S-K00`). `_make_display_code()` in serializers.py strips prefix for display.
+
+---
+
+## 13. Serializers & URL Lookup
+
+**`serialize_source(src, user_input_code)`** → source card JSON: part_number, manufacturer, family, shaft_type, housing_diameter, bore, ip_rating, output_circuit, connection_type, supply_voltage, temp, sensing_method, cpr_list/ppr_range.
+
+**`serialize_result(row, src, rank, src_cpr, t2_cfg, t3_cfg)`** → result card dict with: `part_number`, `display_order_code` (generated by `_kubler_display_code()` using `output_code` + `connection_type_code` Silver passthrough columns), `manufacturer`, `family`, `rank`, `total_score`, `t2_score`, `t3_score`, `t2` dict, `t3` dict, `extra` dict, `product_url`, `t1_passed` list.
+
+Each t2/t3 field: `{score, src_val, cand_val, src_native_label, cand_native_label, label}`. `NATIVE_FIELD_NAMES` maps canonical field → manufacturer's own field name (for display). `FIELD_LABELS` maps canonical field → generic label fallback.
+
+**URL lookup:** Sick → `sick_urls.csv` (7K rows, loaded at startup by part_number key). Posital → `posital_urls.csv` (loaded at startup). Kübler → programmatic slug from family name (strips "Sendix " prefix, converts `-PR` suffix). EPC → `epc_urls.csv` overrides for TRU-TRAC; others use pattern. Baumer → pattern-based. Lika → not implemented (returns None).
+
+---
+
+## 14. API Endpoints
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/auth/login` | — | Returns JWT + user info. Sets active_session_id. |
+| GET | `/api/auth/me` | user | Daily quota, allowed mfrs, role |
+| POST | `/api/auth/heartbeat` | user | +5 min to total_time_spent_minutes |
+| POST | `/api/match` | user | Main search. See match flow above. |
+| POST | `/api/explain` | — | Claude Haiku AI explanation. Stateless, no auth. 422 if no scored features. |
+| GET | `/api/manufacturers` | user | Silver mfrs with display names + row counts |
+| GET | `/api/parts/detect` | user | Auto-detect mfr from part number. Searches combined allowed_sources+allowed_targets pool. |
+| GET | `/api/parts` | user | Browse Silver (mfr, family, fragment params) |
+| GET | `/api/history` | user | User search history (limit param, newest first) |
+| POST | `/api/feedback` | user | Thumbs up/down — upserts to feedback table |
+| DELETE | `/api/feedback` | user | Remove feedback (toggle off) |
+| GET | `/api/feedback/{search_id}` | user | All feedback for a search (for button state restore) |
+| POST | `/api/admin/users` | admin | Create user. I-9/I-12 guards applied. |
+| GET | `/api/admin/users` | admin | List users (clientadmin scoped to own client) |
+| PUT | `/api/admin/users/{email}` | admin | Update constraints. I-11/I-15 guards applied. |
+| DELETE | `/api/admin/users/{email}` | admin | Delete user. Cascades to history+feedback (I-13). 409 if CA has children. |
+| GET | `/api/admin/users/{email}/history\|errors\|feedback` | admin | Per-user data tabs |
+| POST | `/api/admin/refresh-silver` | superadmin | Hot-reload Silver from S3. ~30s. Refreshes VALID_MANUFACTURERS. |
+| GET | `/api/admin/analytics` | superadmin | All-client analytics (scans all history tables) |
+| GET | `/api/admin/analytics/client` | clientadmin | Scoped analytics (own users only) |
+| GET | `/health` | — | Alive check |
+| GET | `/health/db` | — | Silver row counts per manufacturer |
+
+---
+
+## 15. Frontend (EncoderMatch.jsx, 310KB)
+
+Single-file React, no build, loaded via CDN Babel transpile at runtime.
+
+**Page routing (`page` state):** `login` → `selector` (superadmin only — others skip to `search`) → `search` | `history` | `admin` | `weights`.
+
+**Key behaviour:**
+- Idle timeout: 10 min. Session poll: 30s. Heartbeat: 5 min (tab-visible, live mode only).
+- `isAdmin = role in [superadmin, clientadmin]`. DB Coverage panel = superadmin only. Quota bar = enduser only.
+- History prefill: click row → pre-populate search panel (part number + source mfr). `replayParams` state. `setDetectedMfr` set to bypass "Code not recognized" without firing detect API. No auto-submit.
+- Custom weight sliders: session-scoped, reset on login/refresh, not persisted to DB.
+- Dynamic row count: `mfrs.reduce((s,m)=>s+m.count,0)` formatted as `X.XXM+`, falls back to `"1.65M+"`.
+
+**Result card:** circular gauge (green >85%, amber 60–85%, red <60%), T2 + T3 bars, Show Details expands field breakdown, AI Explanation tab (on-demand Haiku call, cached for session), thumbs up/down (live mode only), View Product link.
+
+**No-match banner:** shown for each target with a reason from `no_match_reasons` dict.
+
+---
+
+## 16. DynamoDB User Record Schema
+
+```json
+{
+  "userId": "user@example.com",        "email": "user@example.com",
+  "name": "Display Name",              "password_hash": "<sha256>",
+  "role": "enduser|clientadmin|superadmin",
+  "client": "Kübler",                  "status": "active|locked|invited",
+  "searches_used_today": 0,            "last_search_date": "2026-06-23",
+  "searches_limit": 50,                "allowed_results": 10,
+  "allowed_sources": ["epc","sick"],   "allowed_targets": ["kubler"],
+  "direction": "source_only|bidirectional",
+  "user_creation_limit": 10,           "created_by": "admin@example.com",
+  "admin_email": "admin@example.com",  "created_at": "2026-06-23T10:00:00",
+  "last_login": "...",                 "last_seen": "...",
+  "total_time_spent_minutes": 45,      "active_session_id": "<uuid>"
+}
+```
+
+---
+
+## 17. Known Open Issues
+
+| ID | File | Issue | Priority |
+|---|---|---|---|
+| I-2 | auth.py | Locked accounts can login (429 on first search) — intentional | — |
+| I-4 | JSX | Password `type="text"` — no browser autofill | Low |
+| I-6 | JSX | Stale comment: ProductSelectorPage "Appears for all roles" (wrong since Jun 17) | Low |
+| I-7 | JSX | Dead code: `encoderDest` clientadmin branch unreachable | Low |
+| I-8 | JSX | UserDetailPage avatar hardcoded `#1e3a5f` instead of `roleColors()` | Low |
+| I-15 | auth.py | `scan()` no `LastEvaluatedKey` pagination → silent 1MB truncation at 100+ users | Medium |
+| I-16 | main.py | `list_tables()` max 100, no pagination → fails at 50+ clients | Medium |
+| I-17 | All tables | No DynamoDB TTL — history/errors grow indefinitely | Medium |
+| I-18 | encodermatch_users | No GSI on client/role — all filtered queries are full scans | Medium |
+| I-21 | Silver/EPC | EPC 15S/15T/15H/25SP/25T/25H families may not be in Silver (~21/35 families ingested) | ⚠️ Verify before handover |
+| I-23 | JSX | Source-only enduser dropdown includes allowed_targets manufacturers | Low |
+| I-24 | JSX | Feedback `is_good_match` dual `=== true`/`=== 'true'` guards (legacy string) | Low |
+| I-25 | main.py | Multi-target search sequential not `asyncio.gather()` | Future |
+| — | serializers | `_available_mfrs` field names inconsistent post-refresh (`id/display/count` vs `id/label/rows`) | Low |
+| — | refresh_silver_ecs.py | Hardcoded EMAIL + PASSWORD — move to env var or SSM | Medium |
+| — | ECS | No Elastic IP — task IP changes on task replacement | Medium |
+| — | S3 | Posital Bronze2 CSV not gzipped (25MB → ~3MB gzipped) | Medium |
+| — | main.py | CLAUDE_API_KEY as plaintext ECS env var — move to Secrets Manager | Medium |
+
+---
+
+## 18. Kübler Handover Tests
+
+**Before running:** fill in `kubler_handover_tests.py` lines 57–59:
+```python
+BASE_URL            = "http://<ECS_IP>:8000"
+SUPERADMIN_EMAIL    = "saptak.s@aqbsolutions.com"
+SUPERADMIN_PASSWORD = "saptak@admin1111"
+```
+
+**Run:** `python kubler_handover_tests.py`
+
+**10 steps:** health check → SA login → cleanup old test accounts → create CA (`kubler.ca.test@kubler-test.com`, `KublerAdmin2026!`, limit=2, sources=[epc,sick,posital,lika,baumer], target=kubler) → create 2 endusers + attempt 3rd (must 403 — I-12 live test) → security tests T-A to T-F → 20 CA searches (4/mfr) → 12 EU searches → print result tables → write `kubler_test_results_YYYY-MM-DD.csv` + `kubler_test_summary_YYYY-MM-DD.txt`
+
+**Security tests:**
+- T-A: CA PUT `searches_limit` on enduser → must 403 (I-15 guard)
+- T-B: CA PUT `allowed_results` on enduser → must 403
+- T-C: SA DELETE CA with active users → must 409
+- T-D: CA self-delete → must 400/403
+- T-E: search with disallowed source mfr (nidec) → must 403
+- T-F: delete enduser, verify history API still accessible
+
+**Key expected results:**
+- `DBS60E-RGFJD1024` (Sick hollow_blind) → Kübler: **0 results** (T1 shaft type hard stop — KIH50 is hollow_thru)
+- 3rd enduser: **403** "User creation limit of 2 reached"
+- EPC 15T hollow_thru → Kübler: KIH50 result ~75–90%
+- Baumer EIL580 5000PPR → Kübler: result with low CPR score
+
+**Production Kübler clientadmin (real handover, not test):**
+```python
+{"email": "kubler.admin@kubler-aqb.com", "name": "Kübler Admin", "role": "clientadmin",
+ "client": "Kübler", "allowed_sources": ["kubler","epc","sick","posital","lika","baumer"],
+ "allowed_targets": ["kubler"], "direction": "source_only",
+ "searches_limit": 200, "allowed_results": 10, "user_creation_limit": 10}
+```
+
+**Cleanup after review:** delete `kubler.ca.test@kubler-test.com` + `kubler.eu.test@kubler-test.com` (eu2/eu3 auto-deleted during test run).
+
+---
+
+## 19. Critical Coding Rules
+
+1. **`int(v)` → always `safe_int()` = `int(float(v))`** — DuckDB returns varchar for some columns
+2. **`cpr_values` always JSON array string** — always `json.loads(str(raw))`, never treat as scalar
+3. **`resolution_ppr` is retired** — use `cpr_values` only
+4. **`get_cached_connection()` is singleton — NEVER close it.** Use `get_connection()` for CLI scripts only.
+5. **`union_by_name=true` required** in all `read_parquet()` calls
+6. **Push-Pull `output_voltage_class` = always `"universal"`** (never "HTL")
+7. **Shock/vibration always m/s²** — EPC g-values converted at ETL (×9.81)
+8. **`POSITAL_EXITING_PARTS` must be assigned AFTER `logging.basicConfig()`** — earlier placement silently swallows startup log
+9. **DynamoDB numerics use `Decimal(str(value))`** — boto3 rejects Python float
+10. **`add_history()` wrapped in try/except** — history failures must never kill search response
+11. **`delete_user()` cascades to history+feedback** (I-13). `encodermatch_errors` NOT touched — shared audit table.
+12. **Weight changes in `matcher_config.json` need no code changes.** New scoring method type → register in `SCORING_REGISTRY` or `T1_RULE_REGISTRY` in matcher.py.
+13. **EPC `part_number` in Silver has `EPC-` prefix** — serializers strip it for display
+14. **Score columns: `sc_t2_{field}` and `sc_t3_{field}`** — no leading underscore
+15. **`SELECT *` should be avoided** — pull only the ~25 columns needed by the scorer
+16. **Two services, one cluster** — deploying Posital never affects Kübler and vice versa
+
+---
+
+## 20. Pending Work & Useful Commands
+
+**Priority order:**
+1. Verify EPC families in Silver before handover: `python matcher.py --find-parts --mfr epc --fragment 15S` (also 15T, 15H, 25SP, 25T, 25H)
+2. Deploy (12 files ready, pre-flight done)
+3. Run `kubler_handover_tests.py` post-deploy
+4. Baumer absolute encoder scraping | Lika absolute Bronze2 fix (`interface_canonical=unknown` for AST6/AMT6 → SSI) | Gzip Posital Bronze2 | Absolute Silver schema design session
+
+**Useful AWS CLI:**
+```powershell
+aws ecs list-services --cluster encoder-app-cluster --region ap-south-1
+aws ecs update-service --cluster encoder-app-cluster --service encodermatch-kubler-service --force-new-deployment --region ap-south-1
+aws s3 ls s3://aqb-data-analytics-demo/encoder_pipeline/silver/ --recursive --human-readable
+aws dynamodb list-tables --region ap-south-1
+aws dynamodb describe-table --table-name encodermatch_users --region ap-south-1 --query "Table.ItemCount"
+```
+
+**CLI tools:**
+```powershell
+python matcher.py --part "15T-02-SF-2048-N-V1-Q-PP-F00" --source epc --target kubler --top 5
+python matcher.py --part "8.7000.1242.2048" --source kubler --target posital --target-part "UTD-IPT0Z-XXXXX-4A7S-PRD"
+python matcher.py --find-parts --mfr kubler --family KIH50
+python refresh_silver_ecs.py --dry-run
+```
+
+---
+
+*AQB Solutions | v2.4.1 | June 23, 2026 | Next: Kübler handover deploy*

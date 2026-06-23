@@ -27,9 +27,9 @@ COPY posital_urls.csv ./
 
 # ── Frontend static files ──────────────────────────────────────────────────
 RUN mkdir -p static
-COPY index.html static/index.html
+COPY static/index.html static/index.html
 COPY static/EncoderMatch.jsx static/EncoderMatch.jsx
-COPY static/logo2.webp static/logo2.webp
+COPY static/logo2.png static/logo2.png
 
 # ── Environment defaults (override at runtime) ─────────────────────────────
 ENV AWS_REGION=ap-south-1
