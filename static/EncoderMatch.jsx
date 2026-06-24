@@ -377,7 +377,7 @@ function SearchCounter({ used, limit, dark=false }) {
   if (locked) { barColor=dark?'#374151':'#e5e7eb'; labelColor=dark?'#ef4444':'#dc2626'; bgColor=dark?'#1a1a2a':'#fef2f2'; borderColor=dark?'#7f1d1d':'#fecaca'; }
   else if (pct<=0.10) { barColor='#dc2626'; labelColor=dark?'#fca5a5':'#b91c1c'; bgColor=dark?'#1a1010':'#fef2f2'; borderColor=dark?'#7f1d1d':'#fecaca'; }
   else if (pct<=0.20) { barColor='#d97706'; labelColor=dark?'#fcd34d':'#b45309'; bgColor=dark?'#1a1500':'#fffbeb'; borderColor=dark?'#78350f':'#fde68a'; }
-  else { barColor='#1855d4'; labelColor=dark?'#93c5fd':'#1e40af'; bgColor=dark?'#0f1a2e':'#eff6ff'; borderColor=dark?'#1e3a5f':'#bfdbfe'; }
+  else { barColor='#2563eb'; labelColor=dark?'#93c5fd':'#1d4ed8'; bgColor=dark?'#0f172a':'#eff6ff'; borderColor=dark?'#1e3a5f':'#bfdbfe'; }
   const trackBg=dark?'#334155':'#e2e8f0';
   return (
     <div style={{background:bgColor,border:`1px solid ${borderColor}`,borderRadius:8,padding:'10px 14px'}}>
@@ -867,69 +867,23 @@ function ProductSelectorPage({ dark, user, onSelect }) {
 // ── LoginPage ──────────────────────────────────────────────────────────────
 function LoginPage({ onLogin, dark }) {
   const [email,setEmail]=React.useState('');
-  const [password,setPassword]=React.useState('');   // state — triggers re-renders
-  const pwRef=React.useRef('');                       // ref — always current, immune to stale closure
-  const [pwDisplay,setPwDisplay]=React.useState(''); // masked display value shown in input
+  const [password,setPassword]=React.useState('');
   const [loading,setLoading]=React.useState(false);
   const [error,setError]=React.useState('');
   const [showPw,setShowPw]=React.useState(false);
-  const pwTimerRef=React.useRef(null);
   const aqbNavy='#1a3570', aqbOrange='#e87820';
-
-  // When toggling show → hide: reset display to all-dots and kill any pending reveal.
-  // Reads pwRef.current (always fresh) — avoids stale password state.
-  React.useEffect(()=>{
-    if(!showPw){ clearTimeout(pwTimerRef.current); setPwDisplay('•'.repeat(pwRef.current.length)); }
-  },[showPw]);
-
-  // Kill reveal timer on unmount
-  React.useEffect(()=>()=>clearTimeout(pwTimerRef.current),[]);
-
-  // Peek-last-char handler.
-  // Uses pwRef for all length tracking — immune to stale closure on fast typing.
-  const handlePwChange=(e)=>{
-    const raw=e.target.value;
-    if(showPw){ pwRef.current=raw; setPassword(raw); return; }
-
-    const oldLen=pwRef.current.length; // ref = always the real current length
-    const newLen=raw.length;
-
-    if(newLen===0){
-      pwRef.current=''; setPassword(''); setPwDisplay('');
-      clearTimeout(pwTimerRef.current); return;
-    }
-
-    if(newLen>oldLen){
-      // Characters added — new chars are the suffix beyond what we already tracked
-      const added=raw.slice(oldLen);
-      pwRef.current=pwRef.current+added;
-      setPassword(pwRef.current);
-      setPwDisplay('•'.repeat(pwRef.current.length-added.length)+added);
-      clearTimeout(pwTimerRef.current);
-      pwTimerRef.current=setTimeout(
-        ()=>setPwDisplay('•'.repeat(pwRef.current.length)), // ref in timer = always fresh
-        800
-      );
-    } else {
-      // Characters deleted — trim and mask immediately
-      pwRef.current=pwRef.current.slice(0,newLen);
-      setPassword(pwRef.current);
-      setPwDisplay('•'.repeat(newLen));
-      clearTimeout(pwTimerRef.current);
-    }
-  };
   const border=dark?'#1e293b':'#e2e8f0', textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', inputBg=dark?'#0f172a':'#f8fafc';
   const handleSubmit=async(e)=>{
     e.preventDefault();
     if(!email){setError('Email is required');return;}
-    if(!pwRef.current){setError('Password is required');return;}
+    if(!password){setError('Password is required');return;}
     setError(''); setLoading(true);
     if (API_MODE==='live') {
       try {
         const resp=await fetch(`${FASTAPI_BASE_URL}/api/auth/login`,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({email,password:pwRef.current})
+          body:JSON.stringify({email,password:password})
         });
         const data=await resp.json();
         if(!resp.ok){
@@ -1019,7 +973,7 @@ function LoginPage({ onLogin, dark }) {
                   <button type="button" style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:aqbNavy,fontFamily:'IBM Plex Sans, sans-serif',padding:0}}>Forgot password?</button>
                 </div>
                 <div style={{position:'relative'}}>
-                  <input type="text" autoComplete="current-password" value={showPw?password:pwDisplay} onChange={handlePwChange} placeholder="••••••••" style={{...iStyle,paddingRight:38}} onFocus={e=>e.target.style.borderColor=aqbNavy} onBlur={e=>e.target.style.borderColor=border}/>
+                  <input type={showPw?'text':'password'} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" style={{...iStyle,paddingRight:38}} onFocus={e=>e.target.style.borderColor=aqbNavy} onBlur={e=>e.target.style.borderColor=border}/>
                   <button type="button" onClick={()=>setShowPw(!showPw)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:textSec,padding:0,display:'flex'}}>
                     <svg width={16} height={16} viewBox="0 0 16 16" fill="none"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" stroke="currentColor" strokeWidth="1.3"/><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.3"/>{!showPw&&<line x1="2" y1="2" x2="14" y2="14" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>}</svg>
                   </button>
@@ -1237,9 +1191,14 @@ function ResultCard({ result, source, expanded, onToggle, dark=false, animDelay=
   const [visible,setVisible]=React.useState(false);
   const [activeTab,setActiveTab]=React.useState('breakdown');
   const [hovered,setHovered]=React.useState(false);
+  const [copied,setCopied]=React.useState(false);
   // AI state lifted here so it persists across tab switches (no re-fetch on tab switch)
   const [aiBlocks,setAiBlocks]=React.useState([]);
   const [aiStatus,setAiStatus]=React.useState('idle');
+  const handleCopy=()=>{
+    const val=result.display_order_code||result.part_number;
+    navigator.clipboard.writeText(val).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);}).catch(()=>{});
+  };
   React.useEffect(()=>{const t=setTimeout(()=>setVisible(true),animDelay);return()=>clearTimeout(t);},[]);
   React.useEffect(()=>{if(!expanded)setActiveTab('breakdown');},[expanded]);
   const cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0', borderH=dark?'#334155':'#cbd5e1';
@@ -1253,12 +1212,14 @@ function ResultCard({ result, source, expanded, onToggle, dark=false, animDelay=
       {icon}{label}
     </button>
   );
+  const sc=result.total_score||0;
+  const scoreAccent=sc>=0.85?'#16a34a':sc>=0.60?'#d97706':'#dc2626';
   return (
     <div onMouseEnter={()=>setHovered(true)} onMouseLeave={()=>setHovered(false)}
-      style={{background:cardBg,border:`1px solid ${hovered?borderH:border}`,borderRadius:10,overflow:'hidden',flexShrink:0,transition:'opacity 0.4s ease,transform 0.4s ease,border-color 0.15s',opacity:visible?1:0,transform:visible?'translateY(0)':'translateY(12px)',boxShadow:dark?'none':(hovered?'0 4px 20px rgba(0,0,0,0.08)':'0 1px 4px rgba(0,0,0,0.04)')}}>
+      style={{background:cardBg,borderTop:`1px solid ${hovered?borderH:border}`,borderRight:`1px solid ${hovered?borderH:border}`,borderBottom:`1px solid ${hovered?borderH:border}`,borderLeft:`3px solid ${scoreAccent}`,borderRadius:10,overflow:'hidden',flexShrink:0,transition:'opacity 0.4s ease,transform 0.4s ease,border-color 0.15s',opacity:visible?1:0,transform:visible?'translateY(0)':'translateY(12px)',boxShadow:dark?'none':(hovered?'0 4px 20px rgba(0,0,0,0.08)':'0 1px 4px rgba(0,0,0,0.04)')}}>
       <div style={{display:'flex',gap:0,padding:'16px 20px 14px'}}>
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,marginRight:18,flexShrink:0}}>
-          <div style={{width:26,height:26,borderRadius:'50%',background:result.rank===1?'#1a3570':(dark?'#1e293b':'#f1f5f9'),border:`1.5px solid ${result.rank===1?'#1a3570':(dark?'#334155':'#e2e8f0')}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:result.rank===1?'#ffffff':textSec}}>
+          <div style={{width:26,height:26,borderRadius:'50%',background:cardBg,border:`2px solid ${scoreAccent}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:scoreAccent}}>
             {result.rank}
           </div>
           <ScoreGauge score={result.total_score} size={80} dark={dark}/>
@@ -1277,7 +1238,15 @@ function ResultCard({ result, source, expanded, onToggle, dark=false, animDelay=
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,marginBottom:4}}>
             <div>
-              <div style={{marginBottom:3}}><PartNum value={result.display_order_code || result.part_number} size={15} dark={dark}/></div>
+              <div style={{marginBottom:3,display:'flex',alignItems:'center',gap:8}}>
+                <PartNum value={result.display_order_code || result.part_number} size={15} dark={dark}/>
+                <button onClick={e=>{e.stopPropagation();handleCopy();}} title="Copy part number"
+                  style={{background:copied?(dark?'#16a34a':'#16a34a'):'none',border:`1px solid ${copied?'#16a34a':(dark?'#334155':'#e2e8f0')}`,borderRadius:4,cursor:'pointer',padding:'2px 7px',display:'flex',alignItems:'center',gap:3,color:copied?'#fff':(dark?'#64748b':'#94a3b8'),fontSize:10.5,fontWeight:600,transition:'all 0.15s',flexShrink:0,fontFamily:'IBM Plex Sans, sans-serif'}}>
+                  {copied
+                    ? <><svg width={9} height={9} viewBox="0 0 9 9" fill="none"><path d="M1.5 4.5l2 2 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>Copied</>
+                    : <><svg width={9} height={9} viewBox="0 0 10 10" fill="none"><rect x="1" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3 3V2a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H7" stroke="currentColor" strokeWidth="1.2"/></svg>Copy</>}
+                </button>
+              </div>
               <div style={{fontSize:12.5,color:textSec}}>
                 <span style={{fontWeight:600,color:dark?'#60a5fa':'#1a3570'}}>{result.manufacturer_full}</span>
                 <span style={{margin:'0 6px',color:textMut}}>·</span>
@@ -1666,9 +1635,12 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
       <div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Results to Show</label>
         {isRestricted
-          ? <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderRadius:6,background:dark?'#0f172a':'#f8fafc',border:`1px solid ${border}`}}>
-              <span style={{fontSize:13,color:textSec}}>Set by AQB Solutions</span>
-              <span style={{fontSize:13,fontWeight:700,color:textPri,fontVariantNumeric:'tabular-nums'}}>{topN}</span>
+          ? <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <svg width={12} height={12} viewBox="0 0 12 12" fill="none" style={{flexShrink:0,color:dark?'#64748b':'#94a3b8'}}><rect x="1" y="5" width="10" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3.5 5V3.5a2.5 2.5 0 015 0V5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                <span style={{fontSize:12,color:dark?'#64748b':'#94a3b8'}}>Fixed by your administrator</span>
+              </div>
+              <span style={{fontSize:15,fontWeight:700,color:'#2563eb',fontVariantNumeric:'tabular-nums'}}>{topN}</span>
             </div>
           : <>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -1695,7 +1667,7 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
         const btnDisabled=locked||!anyTarget||!partNum.trim()||detecting||outOfPool;
         return (
           <button onClick={()=>!btnDisabled&&onSearch(partNum,sourceRef.current,targets,topN,{tier2:normalizeWeights(t2Raw),tier3:normalizeWeights(t3Raw)},detectedMfr)} disabled={btnDisabled}
-            style={{width:'100%',padding:'10px',background:btnDisabled?(dark?'#1e293b':'#f1f5f9'):'#1a3570',color:btnDisabled?textSec:'white',border:'none',borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13.5,fontWeight:600,cursor:btnDisabled?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+            style={{width:'100%',padding:'10px',background:btnDisabled?(dark?'#1e293b':'#f1f5f9'):'#2563eb',color:btnDisabled?textSec:'white',border:'none',borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13.5,fontWeight:600,cursor:btnDisabled?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7,boxShadow:btnDisabled?'none':'0 0 14px rgba(37,99,235,0.45)',transition:'box-shadow 0.2s,background 0.2s'}}>
             {searchState==='loading'
               ?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'white',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>Matching…</>
               :detecting
@@ -1848,6 +1820,14 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
 
   const toggleCard=(rank)=>setExpandedCards(s=>({...s,[rank]:!s[rank]}));
   const bg=dark?'#0a0f1a':'#f4f6fa', textSec=dark?'#64748b':'#94a3b8';
+
+  const [prefillToast,setPrefillToast]=React.useState(false);
+  React.useEffect(()=>{
+    if(!replayParams) return;
+    setPrefillToast(true);
+    const t=setTimeout(()=>setPrefillToast(false),3000);
+    return()=>clearTimeout(t);
+  },[replayParams]);
   const errorBg=dark?'#450a0a':'#fef2f2', errorBorder=dark?'#7f1d1d':'#fecaca';
   // Total Silver rows — computed from mfrs array fetched at login.
   // Auto-updates on Silver refresh without code changes.
@@ -1866,6 +1846,23 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
             {searchError}
           </div>
         )}
+        {(()=>{
+          const rem=user.searches_remaining, lim=user.searches_limit;
+          if(!lim||lim>=99999||rem===undefined||rem===null) return null;
+          if(rem===0) return (
+            <div style={{background:dark?'#450a0a':'#fef2f2',border:`1px solid ${dark?'#7f1d1d':'#fecaca'}`,borderRadius:8,padding:'10px 16px',fontSize:13,color:dark?'#fca5a5':'#b91c1c',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+              <svg width={14} height={14} viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M7 4v3.5M7 9.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              No searches remaining today. Resets at midnight UTC — contact your administrator if you need more.
+            </div>
+          );
+          if(rem<=Math.ceil(lim*0.2)) return (
+            <div style={{background:dark?'#1a1500':'#fffbeb',border:`1px solid ${dark?'#78350f':'#fde68a'}`,borderRadius:8,padding:'10px 16px',fontSize:13,color:dark?'#fbbf24':'#b45309',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+              <svg width={14} height={14} viewBox="0 0 14 14" fill="none"><path d="M7 1.5L1.5 12h11L7 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M7 5.5v2.5M7 9.5v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+              {`${rem} search${rem===1?'':''} remaining today (of ${lim}). Resets at midnight UTC.`}
+            </div>
+          );
+          return null;
+        })()}
         {searchState!=='idle'&&<SourceCard source={displaySource} resultCount={searchState==='results'?displayResults.length:null} dark={dark}/>}
         {searchState==='idle'&&!searchError&&<EmptyState dark={dark} totalCount={totalCount}/>}
         {searchState==='loading'&&<LoadingSpinner part={lastPartNum||displaySource.part_number} dark={dark} totalCount={totalCount}/>}
@@ -1881,7 +1878,19 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
         </ErrorBoundary>
         ))}
         {searchState==='results'&&<div style={{fontSize:11.5,color:textSec,textAlign:'center',padding:'8px 0 16px',flexShrink:0}}>Ranked by match score (T2 physical ×70% + T3 secondary ×30%) · {displayResults.length} match{displayResults.length!==1?'es':''} found (up to {lastTopN} requested){lastElapsed?` · ${parseFloat(lastElapsed).toFixed(1)}s${connectionType?` (${connectionType})`:''}`:''}</div>}
+        {searchState==='results'&&displayResults.length>0&&displayResults.length<lastTopN&&(
+          <div style={{display:'flex',alignItems:'flex-start',gap:8,background:dark?'rgba(99,102,241,0.08)':'#eef2ff',border:`1px solid ${dark?'rgba(99,102,241,0.22)':'#c7d2fe'}`,borderRadius:7,padding:'8px 12px',margin:'0 0 12px 0',fontSize:12,color:dark?'#a5b4fc':'#4338ca',flexShrink:0}}>
+            <svg width={14} height={14} viewBox="0 0 16 16" fill="none" style={{marginTop:1,flexShrink:0}}><circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/><path d="M8 7v4M8 5.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            <span><strong>{displayResults.length} of {lastTopN} requested results shown.</strong> The target catalog may not have enough models that meet the source encoder's physical specifications (housing size, shaft type, voltage class). Results shown are the closest available matches.</span>
+          </div>
+        )}
         {toastMsg&&<Toast msg={toastMsg} onDone={()=>setToastMsg(null)}/>}
+        {prefillToast&&(
+          <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',zIndex:9999,background:'#2563eb',color:'#fff',padding:'10px 18px',borderRadius:8,fontSize:13,fontWeight:600,fontFamily:'IBM Plex Sans, sans-serif',boxShadow:'0 0 18px rgba(37,99,235,0.55), 0 4px 16px rgba(0,0,0,0.18)',animation:'slideInToast 0.25s ease',display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap'}}>
+            <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><path d="M2 6.5h9M7 2.5l4 4-4 4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Search pre-filled from history — click Find Replacement to run
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1889,6 +1898,17 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
 
 
 // ── NoMatchBanner ────────────────────────────────────────────────────────────
+const NO_MATCH_SUGGESTIONS = {
+  shaft_type_no_match:      "Try searching with a matching shaft type, or check if a shaft adapter is available.",
+  bore_no_match:            "Try a nearby standard bore size (e.g. 10 mm or 12 mm) or look for a programmable hollow-bore variant.",
+  housing_no_match:         "The housing diameter has no close Kübler equivalent — consider a different encoder series.",
+  voltage_class_incompatible:"Source and target use incompatible voltage classes. Verify supply voltage requirements.",
+  t1_no_match:              "A hard-stop specification (shaft type, voltage class, or connection) has no compatible equivalent.",
+  zero_score:               "Candidates were found but all scored 0 — specs may be too far apart. Try adjusting custom weight sliders.",
+  no_sql_candidates:        "No catalog entries matched the initial filters. This encoder family may not yet be in the database.",
+  no_analog_output:         "Analog output encoders are not available in the current target catalog.",
+};
+
 function NoMatchBanner({ reasons, dark }) {
   // Guard: reasons must be a non-empty object
   if (!reasons || typeof reasons !== 'object' || Object.keys(reasons).length === 0) return null;
@@ -1899,6 +1919,7 @@ function NoMatchBanner({ reasons, dark }) {
   const textCl  = dark ? '#e2e8f0' : '#111827';
   const subCl   = dark ? '#94a3b8' : '#64748b';
   const iconCl  = dark ? '#f97316' : '#ea580c';
+  const hintCl  = dark ? '#60a5fa' : '#1d4ed8';
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -1931,6 +1952,12 @@ function NoMatchBanner({ reasons, dark }) {
               {reason.detail&&(
                 <div style={{fontSize:11.5,color:subCl,lineHeight:1.5}}>
                   {reason.detail}
+                </div>
+              )}
+              {NO_MATCH_SUGGESTIONS[reason.code]&&(
+                <div style={{marginTop:6,fontSize:11.5,color:hintCl,lineHeight:1.5,display:'flex',alignItems:'flex-start',gap:5}}>
+                  <svg width={12} height={12} viewBox="0 0 12 12" fill="none" style={{flexShrink:0,marginTop:1}}><circle cx="6" cy="6" r="5" stroke={hintCl} strokeWidth="1.2"/><path d="M6 4v3M6 8.5v.5" stroke={hintCl} strokeWidth="1.3" strokeLinecap="round"/></svg>
+                  {NO_MATCH_SUGGESTIONS[reason.code]}
                 </div>
               )}
             </div>
@@ -1985,7 +2012,7 @@ function HistoryPage({ user, onRerun, dark, authToken }) {
           <div>
             <div style={{fontSize:11,fontWeight:600,color:textMut,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}}>Usage today</div>
             <div style={{width:140,height:5,borderRadius:3,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
-              <div style={{width:`${pct*100}%`,height:'100%',borderRadius:3,background:pct>=0.9?'#dc2626':pct>=0.8?'#d97706':'#1855d4'}}/>
+              <div style={{width:`${pct*100}%`,height:'100%',borderRadius:3,background:pct>=0.9?'#dc2626':pct>=0.8?'#d97706':'#2563eb'}}/>
             </div>
           </div>
           <span style={{fontSize:13,fontWeight:700,color:textPri,fontVariantNumeric:'tabular-nums'}}>{user.searches_used}<span style={{fontSize:11,fontWeight:400,color:textSec}}>/{user.searches_limit}</span></span>

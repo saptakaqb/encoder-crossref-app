@@ -1,5 +1,5 @@
 # EncoderMatch — Claude Code Context
-**Company:** AQB Solutions Private Ltd. | **Version:** v2.4.1 | **Updated:** June 23, 2026
+**Company:** AQB Solutions Private Ltd. | **Version:** v2.4.1 | **Updated:** June 24, 2026
 **Deploy status:** 12 files changed locally — NOT yet deployed to ECS (last deploy ~June 4, 2026)
 
 ---
@@ -14,7 +14,7 @@ AI-powered industrial encoder cross-reference platform. Input: source encoder pa
 
 ## 2. AWS Infrastructure (all ap-south-1 / Mumbai)
 
-**ECS:** cluster `encoder-app-cluster`, Fargate, 2vCPU/8GB, port 8000, health check `GET /health` start-period 120s. Posital service: `encodermatch-service` (live). Kübler service: `encodermatch-kubler-service` (to be created on next deploy). Task def: `encodermatch-app` rev 6. No Elastic IP — IPs are dynamic. Use `python refresh_silver_ecs.py --dry-run` to discover current IP.
+**ECS:** cluster `encoder-app-cluster`, Fargate, 2vCPU/8GB, port 8000, health check `GET /health` start-period 120s. Posital service: `encodermatch-service` (live). Kübler service: `encodermatch-kubler-service` (to be created on next deploy). Task def: `encodermatch-app` rev 7 (registered Jun 24 — both `CLAUDE_API_KEY` + `JWT_SECRET_KEY` moved to Secrets Manager `valueFrom`; rev 6 still live on Posital service until next deploy). No Elastic IP — IPs are dynamic. Use `python refresh_silver_ecs.py --dry-run` to discover current IP.
 
 **ECR:** `155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app` — tagging: `latest` + `kubler-test-YYYY-MM-DD`. Old name `encoder-crossref-app` was wrong — all 7 references corrected June 22.
 
@@ -24,7 +24,7 @@ AI-powered industrial encoder cross-reference platform. Input: source encoder pa
 
 **EC2:** `encoder-crossref`, t3.small (upgrade to t3.medium pending — OOMs on Playwright). SSH key: `C:\Users\sadhy\Downloads\encoder-crossref-key.pem`. Purpose: Bronze1 PDF extraction, Bronze2 CSV production, scraping.
 
-**Env vars (ECS task def):** `AWS_REGION=ap-south-1`, `DYNAMO_USERS_TABLE=encodermatch_users`, `S3_BUCKET=aqb-data-analytics-demo`, `S3_ROOT=encoder_pipeline`, `JWT_SECRET_KEY` (secret), `CLAUDE_API_KEY` (Anthropic key — TODO: move to Secrets Manager), `CORS_ORIGINS`. Local fallback: `config_claude.py` (gitignored) holds `CLAUDE_API_KEY` and `MODEL = "claude-haiku-4-5-20251001"`.
+**Env vars (ECS task def rev 7):** `AWS_REGION=ap-south-1`, `DYNAMO_USERS_TABLE=encodermatch_users`, `S3_BUCKET=aqb-data-analytics-demo`, `S3_ROOT=encoder_pipeline`, `CORS_ORIGINS`. **Secrets (valueFrom):** `CLAUDE_API_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/anthropic-api-key-wiWEcO` | `JWT_SECRET_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/jwt-secret-key-BrWF5C`. Local fallback: `config_claude.py` (gitignored) holds `CLAUDE_API_KEY` and `MODEL = "claude-haiku-4-5-20251001"`.
 
 ---
 
@@ -86,12 +86,12 @@ docker tag encodermatch-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com
 docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:latest
 docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:$TAG
 
-# Deploy Posital (update existing)
-aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --force-new-deployment --region ap-south-1
+# Deploy Posital (update existing) — use rev 7 explicitly (secrets migration)
+aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --task-definition encodermatch-app:7 --force-new-deployment --region ap-south-1
 
 # Deploy Kübler (CREATE NEW — service doesn't exist yet)
 aws ecs create-service --cluster encoder-app-cluster --service-name encodermatch-kubler-service `
-  --task-definition encodermatch-app --desired-count 1 --launch-type FARGATE `
+  --task-definition encodermatch-app:7 --desired-count 1 --launch-type FARGATE `
   --network-configuration "awsvpcConfiguration={subnets=[<SUBNET_ID>],securityGroups=[<SG_ID>],assignPublicIp=ENABLED}" `
   --region ap-south-1
 
@@ -423,7 +423,7 @@ Single-file React, no build, loaded via CDN Babel transpile at runtime.
 | — | refresh_silver_ecs.py | Hardcoded EMAIL + PASSWORD — move to env var or SSM | Medium |
 | — | ECS | No Elastic IP — task IP changes on task replacement | Medium |
 | — | S3 | Posital Bronze2 CSV not gzipped (25MB → ~3MB gzipped) | Medium |
-| — | main.py | CLAUDE_API_KEY as plaintext ECS env var — move to Secrets Manager | Medium |
+| — | main.py | ~~CLAUDE_API_KEY as plaintext ECS env var~~ — **DONE Jun 24**: both CLAUDE_API_KEY + JWT_SECRET_KEY moved to Secrets Manager valueFrom in task def rev 7 | ✅ Done |
 
 ---
 
@@ -449,7 +449,7 @@ SUPERADMIN_PASSWORD = "saptak@admin1111"
 - T-F: delete enduser, verify history API still accessible
 
 **Key expected results:**
-- `DBS60E-RGFJD1024` (Sick hollow_blind) → Kübler: **0 results** (T1 shaft type hard stop — KIH50 is hollow_thru)
+- `DBS60E-RGFJD1024` (Sick hollow_blind) → Kübler: **⚠️ TEST CASE BROKEN** — Silver ETL misclassified this encoder as `hollow_thru` (should be `hollow_blind`; `DBS` = Blindhohlwelle in Sick naming). Returns 5 results instead of 0. Fix: correct `shaft_type` in Sick Silver ETL before using this as a handover test. Use a confirmed hollow_blind Sick encoder instead.
 - 3rd enduser: **403** "User creation limit of 2 reached"
 - EPC 15T hollow_thru → Kübler: KIH50 result ~75–90%
 - Baumer EIL580 5000PPR → Kübler: result with low CPR score

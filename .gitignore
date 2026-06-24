@@ -5,3 +5,6 @@ __pycache__/
 *.db
 *.duckdb
 .env
+*.log
+*.xlsx
+crossref_results_tmp.json
