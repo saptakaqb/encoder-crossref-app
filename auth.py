@@ -268,6 +268,40 @@ def increment_search_count(email: str) -> dict:
         )
     if user.get("status") == "invited":
         raise HTTPException(status_code=403, detail="Account not yet activated.")
+    if user.get("status") == "deactivated":
+        raise HTTPException(
+            status_code=403,
+            detail="Account deactivated. Contact AQB Solutions to restore access.",
+        )
+
+    # ── Lifetime search limit (CA-level pool) ────────────────────────────────
+    # For clientadmin: enforced against their own record.
+    # For enduser: enforced against the CA who created them.
+    # Superadmin accounts are never subject to lifetime limits.
+    role = user.get("role", "enduser")
+    ca_email: str | None = None
+    ca_record: dict | None = None
+    if role == "clientadmin":
+        ca_email  = email
+        ca_record = user
+    elif role == "enduser":
+        ca_email = user.get("created_by") or user.get("admin_email")
+        if ca_email:
+            ca_record = get_user(ca_email)
+
+    if ca_record:
+        lt_limit = ca_record.get("lifetime_searches_limit")
+        if lt_limit is not None:
+            lt_limit = int(lt_limit)
+            lt_used  = int(ca_record.get("lifetime_searches_used", 0))
+            if lt_used >= lt_limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        f"Lifetime search limit of {lt_limit} reached for this account. "
+                        "Contact AQB Solutions to increase your limit."
+                    ),
+                )
 
     today      = _today_utc()
     last_date  = user.get("last_search_date", "")
@@ -313,6 +347,17 @@ def increment_search_count(email: str) -> dict:
                 detail=f"Daily search limit of {limit} reached. Resets at midnight UTC.",
             )
         raise
+
+    # ── Increment CA lifetime counter (best-effort, never kills a search) ────
+    if ca_email:
+        try:
+            table.update_item(
+                Key={"userId": ca_email},
+                UpdateExpression="ADD lifetime_searches_used :one",
+                ExpressionAttributeValues={":one": 1},
+            )
+        except Exception:
+            pass
 
     return resp["Attributes"]
 

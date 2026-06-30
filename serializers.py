@@ -746,6 +746,15 @@ def _kub_flange_h(row: dict, rev: dict, default: str) -> str:
     return default
 
 
+def _kub_flange_ft(row: dict, rev: dict, default: str) -> str:
+    """Reverse flange from flange_type_canonical — flange_type mode.
+    Used for families where housing_diameter_mm is null (e.g. A02H large hollow
+    shaft stores housing as NaN in Silver).
+    """
+    ft = (row.get("flange_type_canonical") or "").lower()
+    return rev.get(ft, default)
+
+
 def _kub_bore(row: dict, rev: dict) -> str:
     """Nearest-match bore code (tol=0.02 mm — distinguishes 9.5 vs 9.525 mm)."""
     b = _safe_float(row.get("shaft_bore_diameter_mm"))
@@ -814,6 +823,20 @@ _OR_A020 = {                         # A020 hollow ø95 mm
     ("PP",    "5_30V" ): "5",        # * "A"=same canonical
     ("SC",    "5V"    ): "8",
     ("SC",    "10_30V"): "9",
+}
+_OR_A02H = {                         # A02H large hollow ø95 mm (per datasheet rev.)
+    ("RS422", "5V"    ): "1",
+    ("RS422", "10_30V"): "4",
+    ("RS422", "5_30V" ): "D",        # US version 5..30 V
+    ("PP",    "5_30V" ): "5",        # * "A"=same canonical, no inverted signal
+    ("PP",    "10_30V"): "3",        # * "A"=same canonical for 10..30 V
+    ("SC",    "5V"    ): "8",
+    ("SC",    "10_30V"): "9",
+}
+_OR_H120 = {                         # H120 heavy duty hollow (per datasheet)
+    ("RS422", "5V"    ): "4",
+    ("RS422", "10_30V"): "1",
+    ("PP",    "10_30V"): "5",        # * "6"=power version, same canonical
 }
 _OR_SINCOS = {                       # 5804/5824, 5814/5834, 5814FS2/FS3, 5834FS2/FS3
     ("SC",    "5V"    ): "1",
@@ -927,6 +950,22 @@ _CR_5834FS = {               # 5834FS2, 5834FS3 — cable + M12/8 + M23
 _CR_5006 = {("m12", 8): "4"}    # 5006 — M12/8-pin hardcoded in order template
 _CR_5026 = {("m12", 8): "2"}    # 5026 — M12/8-pin hardcoded in order template
 _CR_CABLE = {("cable", None): "2"}   # 7000, 7020, 2400-series — radial cable only
+_CR_A02H = {                         # A02H large hollow ø95 mm
+    ("cable",  None): "1",           # radial 1 m PVC
+    ("m23",    12  ): "2",
+    ("m12",    8   ): "E",
+    ("m12",    5   ): "R",
+    ("ms/mil", 7   ): "K",
+    ("ms/mil", 10  ): "D",
+    ("dsub",   9   ): "G",           # Silver stores "DSub" → .lower() = "dsub"
+}
+_CR_H120 = {                         # H120 heavy duty hollow
+    ("cable",        None): "1",     # radial 1 m PVC (* "A"=special length)
+    ("m12",          8   ): "2",     # M12 8-pin CCW (* "D"=CW same canonical)
+    ("m23",          12  ): "4",     # M23 12-pin CCW
+    ("terminal_block",None): "K",
+}
+_CR_CABLE_7 = {("cable", None): "1"}  # 7100, 7120 — radial cable only (code "1" not "2")
 
 
 # ─── Flange reverse maps — housing_ip mode ───────────────────────────────────
@@ -969,6 +1008,19 @@ _FR_5834FS2 = {
     (63.0, 67): "L",
 }
 _FR_7020 = {(70.0, 67): "1", (65.0, 67): "5"}
+_FR_7100 = {(70.0, 67): "2"}          # 7100 solid — single clamping/synchro flange
+_FR_7120 = {(70.0, 67): "2",          # spring element short
+            (65.0, 67): "6"}          # stator coupling ø65 mm
+# A02H: housing_diameter_mm is NULL — use flange_type_canonical for reverse lookup
+_FR_A02H = {
+    "face_mount":            "1",     # without mounting aid (plain)
+    "spring_element":        "2",     # spring_element short (default when unspecified)
+    "spring_element_short":  "2",
+    "spring_element_long":   "3",
+    "stator_coupling":       "5",     # ETL maps torque stop → stator_coupling
+    "torque_stop_flexible":  "5",
+    "torque_stop_rigid":     "5",
+}
 _FR_2400 = {(24.0, 65): "1", (28.0, 65): "3", (30.0, 65): "2"}
 
 # ─── Flange reverse maps — housing_only mode ─────────────────────────────────
@@ -987,6 +1039,9 @@ _BR_KIS50  = {6.0:"1", 8.0:"6", 10.0:"3", 12.0:"5", 9.525:"8"}  # * "D"=10mm mea
 _BR_KIH50  = {8.0:"9", 9.52:"4", 10.0:"3", 12.0:"5", 12.75:"6", 14.0:"A", 15.0:"8"}
 _BR_A020   = {20.0:"C", 24.0:"6", 25.0:"5", 28.0:"3", 30.0:"A",
               38.0:"2", 40.0:"B", 42.0:"1", 25.4:"4"}
+_BR_A02H   = {20.0:"C", 24.0:"6", 25.0:"5", 28.0:"3", 30.0:"A",
+              35.0:"H", 38.0:"2", 40.0:"B", 42.0:"1",
+              25.4:"4", 12.7:"D", 15.875:"E", 19.05:"F", 28.575:"G", 31.75:"N"}
 _BR_5000   = {6.0:"1", 6.35:"2", 8.0:"6", 9.5:"4", 9.525:"8", 10.0:"3", 11.0:"B", 12.0:"5"}
 _BR_5020   = {6.0:"1", 6.35:"2", 8.0:"9", 9.525:"4", 10.0:"3", 12.0:"5",
               12.7:"6", 14.0:"A", 15.0:"8", 15.875:"7"}
@@ -1028,6 +1083,16 @@ _BRT_5834FS2 = {
     (12.0, "hollow_thru"): "4",
     (14.0, "hollow_thru"): "5",
     (10.0, "solid"      ): "K",
+}
+_BRT_H120 = {                        # H120 mixed thru/blind hollow
+    (16.0, "hollow_thru" ): "2",
+    (20.0, "hollow_thru" ): "3",
+    (25.0, "hollow_thru" ): "5",
+    (25.4, "hollow_thru" ): "6",     # 1"
+    (28.0, "hollow_thru" ): "7",
+    (12.0, "hollow_blind"): "A",
+    (16.0, "hollow_blind"): "B",
+    (17.0, "hollow_blind"): "K",     # conical ø17 mm, 1:10 taper
 }
 
 
@@ -1084,11 +1149,21 @@ _PATH_A_CFG: dict[str, dict] = {
                     bore_mode="with_type", bore_arg=_BRT_5834FS2, out_rev=_OR_SINCOS, conn_rev=_CR_5834FS),
     "5834FS3": dict(prefix="8", flange_mode="housing_ip",  flange_arg=_FR_5834FS2, flange_default="9",
                     bore_mode="simple",    bore_arg=_BR_5834FS3,  out_rev=_OR_SINCOS, conn_rev=_CR_5834FS),
-    # ── ATEX 7000/7020 ───────────────────────────────────────────────────
+    # ── ATEX zone 1/21 — 7000/7020 ──────────────────────────────────────
     "SENDIX 7000": dict(prefix="8", flange_mode="fixed",      flange_arg="1",       flange_default="1",
                         bore_mode="simple",    bore_arg=_BR_7000,   out_rev=_OR_SENDIX, conn_rev=_CR_CABLE),
     "SENDIX 7020": dict(prefix="8", flange_mode="housing_ip",  flange_arg=_FR_7020,  flange_default="1",
                         bore_mode="simple",    bore_arg=_BR_7020,   out_rev=_OR_SENDIX, conn_rev=_CR_CABLE),
+    # ── ATEX mining M2 — 7100/7120 (flange codes differ from 7000/7020) ──
+    "SENDIX 7100": dict(prefix="8", flange_mode="housing_ip",  flange_arg=_FR_7100,  flange_default="2",
+                        bore_mode="simple",    bore_arg=_BR_7000,   out_rev=_OR_SENDIX, conn_rev=_CR_CABLE_7),
+    "SENDIX 7120": dict(prefix="8", flange_mode="housing_ip",  flange_arg=_FR_7120,  flange_default="2",
+                        bore_mode="simple",    bore_arg=_BR_7020,   out_rev=_OR_SENDIX, conn_rev=_CR_CABLE_7),
+    # ── Large hollow shaft — A02H / H120 ────────────────────────────────
+    "A02H":  dict(prefix="8", flange_mode="flange_type", flange_arg=_FR_A02H,  flange_default="1",
+                  bore_mode="simple",    bore_arg=_BR_A02H,   out_rev=_OR_A02H,   conn_rev=_CR_A02H),
+    "H120":  dict(prefix="8", flange_mode="fixed",       flange_arg="5",       flange_default="5",
+                  bore_mode="with_type", bore_arg=_BRT_H120,  out_rev=_OR_H120,   conn_rev=_CR_H120),
     # ── Miniature 2400-series ─────────────────────────────────────────────
     "2400": dict(prefix="05", flange_mode="housing_ip",  flange_arg=_FR_2400,  flange_default="1",
                  bore_mode="simple",    bore_arg=_BR_2400,   out_rev=_OR_2400,   conn_rev=_CR_CABLE),
@@ -1124,6 +1199,8 @@ def _path_a_display_code(
         a = cfg["flange_arg"]
     elif mode == "housing_ip":
         a = _kub_flange_hi(row, cfg["flange_arg"], cfg["flange_default"])
+    elif mode == "flange_type":
+        a = _kub_flange_ft(row, cfg["flange_arg"], cfg["flange_default"])
     else:
         a = _kub_flange_h(row, cfg["flange_arg"], cfg["flange_default"])
 

@@ -8,6 +8,9 @@ WORKDIR /app
 # ── System deps ────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    nginx \
+    certbot \
+    python3-certbot-nginx \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python deps ────────────────────────────────────────────────────────────
@@ -40,8 +43,10 @@ ENV JWT_SECRET_KEY=change-this-before-prod
 ENV S3_BUCKET=aqb-data-analytics-demo
 ENV S3_ROOT=encoder_pipeline
 
-# ── Port ───────────────────────────────────────────────────────────────────
+# ── Ports ──────────────────────────────────────────────────────────────────
 EXPOSE 8000
+EXPOSE 80
+EXPOSE 443
 
 # ── Health check for ECS ───────────────────────────────────────────────────
 # start-period covers Silver download from S3 at startup (boto3, same-region).

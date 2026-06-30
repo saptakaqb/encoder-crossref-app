@@ -696,30 +696,6 @@ def score_candidates(src: dict, cand_df: pd.DataFrame, cfg: dict,
         fn = SCORING_REGISTRY[fc["method"]]
         t2_scores[field] = fn(src, cand_df, field, fc.get("params", {}), cfg)
 
-    # ── Cable-conditional T2 weight redistribution ────────────────────────────
-    # When both source and candidate use specific (non-cable) connector types,
-    # T1 exact_match_except_cable already enforces an exact match — every
-    # surviving candidate has the same connector type as the source, so the
-    # T2 connection_type score would be a uniform 1.0 and adds no discriminating
-    # power.  Setting those scores to NaN triggers _weighted_score's null-
-    # redistribution: the 0.15 weight flows proportionally to the other T2
-    # fields (CPR, IP, output circuit, housing, bore), giving them more signal.
-    # When cable is involved on either side, the score is kept — the matrix
-    # produces meaningful partial scores (cable→M12=0.3, cable→cable=1.0).
-    _src_conn = str(src.get("connection_type_canonical") or "").strip().lower()
-    if "connection_type_canonical" in t2_scores and _src_conn not in ("cable", ""):
-        _cand_conn = (
-            cand_df["connection_type_canonical"]
-            .fillna("").astype(str).str.strip().str.lower()
-        )
-        # True where candidate is also a specific (non-cable, non-empty) connector
-        _both_non_cable = ~_cand_conn.isin(["cable", "", "nan", "none"])
-        # where(cond=~_both_non_cable, other=nan): keep score when cable involved,
-        # set NaN when both sides are specific connectors (triggers redistribution)
-        t2_scores["connection_type_canonical"] = (
-            t2_scores["connection_type_canonical"].where(~_both_non_cable, other=np.nan)
-        )
-
     t2 = _weighted_score(t2_scores, {f: c["weight"] for f, c in t2_cfg.items()})
 
     t3_scores = {}

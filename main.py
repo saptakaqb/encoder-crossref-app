@@ -261,11 +261,13 @@ class MatchRequest(BaseModel):
     custom_weights: Optional[dict] = None   # {"tier2":{field:w,...},"tier3":{field:w,...}}
 
 class UpdateUserRequest(BaseModel):
-    searches_limit:      Optional[int]       = None
-    user_creation_limit: Optional[int]       = None
-    allowed_results:     Optional[int]       = None
-    allowed_targets:     Optional[List[str]] = None
-    direction:           Optional[str]       = None
+    searches_limit:           Optional[int]       = None
+    user_creation_limit:      Optional[int]       = None
+    allowed_results:          Optional[int]       = None
+    lifetime_searches_limit:  Optional[int]       = None
+    allowed_targets:          Optional[List[str]] = None
+    direction:                Optional[str]       = None
+    status:                   Optional[str]       = None
     status:              Optional[str]       = None
 
 class FeedbackRequest(BaseModel):
@@ -318,7 +320,9 @@ def _safe_user(user: dict) -> dict:
         "allowed_sources":    user.get("allowed_sources", []),
         "allowed_targets":    user.get("allowed_targets", []),
         "allowed_results":      int(user.get("allowed_results", 10)),
-        "user_creation_limit":  int(user["user_creation_limit"]) if user.get("user_creation_limit") is not None else None,
+        "user_creation_limit":      int(user["user_creation_limit"]) if user.get("user_creation_limit") is not None else None,
+        "lifetime_searches_limit":  int(user["lifetime_searches_limit"]) if user.get("lifetime_searches_limit") is not None else None,
+        "lifetime_searches_used":   int(user.get("lifetime_searches_used", 0)),
         "direction":            user.get("direction", "source_only"),
         "status":             user.get("status"),
         "admin_email":        user.get("admin_email"),
@@ -846,14 +850,16 @@ class CreateUserRequest(BaseModel):
     role:                str           = Field("enduser", description="'enduser' or 'clientadmin'")
     # Free-text company name — NOT a manufacturer ID (e.g. "Kübler Group", "EPC Corp")
     client:              str           = ""
-    searches_limit:      int           = Field(50, ge=0,  description="Daily search limit; 0 = locked")
+    searches_limit:           int           = Field(50, ge=0,  description="Daily search limit; 0 = locked")
     # Max results returned per search — enforced server-side in /api/match
-    allowed_results:     int           = Field(10, ge=1, le=20, description="Max results per search query")
+    allowed_results:          int           = Field(10, ge=1, le=20, description="Max results per search query")
     # Max users this admin may create — only used when role='clientadmin'
-    user_creation_limit: Optional[int] = Field(None, ge=1, description="User creation cap for clientadmin accounts")
-    allowed_sources:     List[str]     = []
-    allowed_targets:     List[str]     = []
-    direction:           str           = "source_only"
+    user_creation_limit:      Optional[int] = Field(None, ge=1, description="User creation cap for clientadmin accounts")
+    # Lifetime search pool shared across this CA and all users under them (clientadmin only)
+    lifetime_searches_limit:  Optional[int] = Field(None, ge=0, description="Combined lifetime search cap for CA + all their users; None = unlimited")
+    allowed_sources:          List[str]     = []
+    allowed_targets:          List[str]     = []
+    direction:                str           = "source_only"
 
     @field_validator("role")
     @classmethod
@@ -1180,10 +1186,14 @@ async def create_user(
         "last_seen":                "",
         "total_time_spent_minutes": 0,
     }
-    # Store user creation limit only for clientadmin accounts
-    if body.role == "clientadmin" and body.user_creation_limit is not None:
-        new_user["user_creation_limit"] = body.user_creation_limit
-        new_user["users_created_count"] = 0
+    # Store clientadmin-only fields
+    if body.role == "clientadmin":
+        if body.user_creation_limit is not None:
+            new_user["user_creation_limit"] = body.user_creation_limit
+            new_user["users_created_count"] = 0
+        if body.lifetime_searches_limit is not None:
+            new_user["lifetime_searches_limit"] = body.lifetime_searches_limit
+            new_user["lifetime_searches_used"]  = 0
 
     from auth import get_dynamo, USERS_TABLE
     get_dynamo().Table(USERS_TABLE).put_item(Item=new_user)
@@ -1206,7 +1216,10 @@ async def list_users(admin: dict = Depends(require_admin)):
     if admin.get("role") == "superadmin":
         users = get_all_users()
     else:
-        users = get_all_users_for_client(admin["client"])
+        # Exclude the calling clientadmin from their own user list — they manage
+        # endusers only; seeing themselves inflates the quota count and is confusing.
+        users = [u for u in get_all_users_for_client(admin["client"])
+                 if u.get("userId") != admin.get("userId")]
     return {"users": [_admin_user(u) for u in users], "count": len(users)}
 
 
@@ -1285,13 +1298,22 @@ async def update_user_constraints(
         # searches_limit, allowed_results, user_creation_limit may only be
         # changed by superadmin — clientadmin cannot grant their users more
         # capacity than was configured at account creation.
-        SUPERADMIN_ONLY_FIELDS = {"searches_limit", "allowed_results", "user_creation_limit"}
+        SUPERADMIN_ONLY_FIELDS = {"searches_limit", "allowed_results", "user_creation_limit", "lifetime_searches_limit", "status"}
         blocked = SUPERADMIN_ONLY_FIELDS & set(updates.keys())
         if blocked:
             raise HTTPException(
                 status_code=403,
                 detail=f"Only AQB administrators can modify: {', '.join(sorted(blocked))}.",
             )
+    # Validate status value — only superadmin-togglable statuses allowed via API
+    if "status" in updates and updates["status"] not in ("active", "deactivated"):
+        raise HTTPException(status_code=400, detail="status must be 'active' or 'deactivated'.")
+    # Cannot deactivate a superadmin
+    if updates.get("status") == "deactivated":
+        from auth import get_user as _gu
+        t = _gu(target)
+        if t and t.get("role") == "superadmin":
+            raise HTTPException(status_code=403, detail="Superadmin accounts cannot be deactivated.")
     update_user(target, updates)
     return {"status": "updated", "userId": target, "updates": updates}
 

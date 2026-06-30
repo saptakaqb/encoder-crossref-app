@@ -93,6 +93,17 @@ BAUMER_FAMILY_PREFIXES: frozenset = frozenset({
     "HS35F", "HS35P", "HS35S",
 })
 
+# Posital order code type-prefixes — used to set mfr_hint="posital" in
+# _parse_order_code. Every Posital order code starts with one of these tokens.
+# Silver product_family values are descriptive ("Through Hollow", "Compact
+# Magnetic") and do NOT match these tokens — Stage 2d handles the mapping.
+POSITAL_FAMILY_PREFIXES: frozenset = frozenset({
+    "OCD", "OHD",          # Open (hollow through / hollow blind)
+    "UCD", "UTD", "UCF",   # Universal (standard range, servo-flange, solid)
+    "UCE", "UCU",          # Universal (ATEX, cube/square)
+    "UHD",                 # Universal heavy-duty
+})
+
 # ── Posital lifecycle filter ──────────────────────────────────────────────────
 
 def _load_posital_exiting() -> frozenset:
@@ -532,6 +543,8 @@ def _parse_order_code(order_code: str, manufacturer: str = "") -> dict:
         mfr_hint = "lika"
     elif first_token in BAUMER_FAMILY_PREFIXES:
         mfr_hint = "baumer"
+    elif first_token in POSITAL_FAMILY_PREFIXES:
+        mfr_hint = "posital"
 
     tokens = re.split(r"[._-]", order_code)
 
@@ -905,6 +918,26 @@ def fetch_part(con: duckdb.DuckDBPyConnection,
             specific_ppr = int(_lika_parts[2])
             log.info(f"  [fetch_part] Lika positional decode: "
                      f"family={silver_family!r} ppr={specific_ppr}")
+
+    # ── Stage 2d: Posital prefix LIKE search ────────────────────────────────
+    # Posital Silver product_family names ("Through Hollow", "Compact Magnetic")
+    # never match order code prefixes ("OCD", "UCD", etc.), so family-name
+    # lookup always fails for Posital. Instead we LIKE-match on the part_number
+    # column itself, which stores the full order code, so any prefix of a real
+    # Posital code (e.g. "OCD-INR00") finds valid candidates.
+    if manufacturer.lower() == "posital" and silver_family is None:
+        _pn_prefix = part_number.rstrip("-")
+        rows = con.execute(f"""
+            SELECT * FROM {SILVER_VIEW}
+            WHERE manufacturer = 'posital'
+              AND part_number LIKE ?
+            ORDER BY part_number
+            LIMIT 1
+        """, [_pn_prefix + "%"]).fetchdf()
+        if not rows.empty:
+            matched = rows.iloc[0]["part_number"]
+            log.info(f"  [fetch_part] Posital prefix LIKE: '{part_number}' -> '{matched}'")
+            return rows.iloc[0].to_dict()
 
     # ── Stage 3: PPR-aware family lookup ────────────────────────────────────
     parsed   = _parse_order_code(part_number, manufacturer)

@@ -1197,7 +1197,16 @@ function ResultCard({ result, source, expanded, onToggle, dark=false, animDelay=
   const [aiStatus,setAiStatus]=React.useState('idle');
   const handleCopy=()=>{
     const val=result.display_order_code||result.part_number;
-    navigator.clipboard.writeText(val).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);}).catch(()=>{});
+    const done=()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);};
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(val).then(done).catch(()=>{
+        // fallback if clipboard permission denied
+        const el=document.createElement('textarea');el.value=val;document.body.appendChild(el);el.select();try{document.execCommand('copy');done();}catch(e){}document.body.removeChild(el);
+      });
+    } else {
+      // HTTP context — clipboard API unavailable, use execCommand
+      const el=document.createElement('textarea');el.value=val;document.body.appendChild(el);el.select();try{document.execCommand('copy');done();}catch(e){}document.body.removeChild(el);
+    }
   };
   React.useEffect(()=>{const t=setTimeout(()=>setVisible(true),animDelay);return()=>clearTimeout(t);},[]);
   React.useEffect(()=>{if(!expanded)setActiveTab('breakdown');},[expanded]);
@@ -1564,8 +1573,10 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
   const bg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#64748b':'#94a3b8', inputBg=dark?'#0f172a':'#f8fafc';
   const locked=!isAdmin&&user.searches_used>=user.searches_limit;
+  const deactivated = user.status === 'deactivated';
+  const searchBlocked = locked || deactivated;
   const anyTarget=Object.values(targets).some(Boolean)||isRestricted; // restricted users always have a target
-  const toggleTarget=(key)=>!locked&&!isRestricted&&setTargets(t=>({...t,[key]:!t[key]}));
+  const toggleTarget=(key)=>!searchBlocked&&!isRestricted&&setTargets(t=>({...t,[key]:!t[key]}));
   // Source pool: superadmin gets all mfrs; clientadmin/enduser get only their allowed_sources
   // (no blending with targets — bidirectional is superadmin-only)
   const availableSources=isAdmin?mfrIds:(user.allowed_sources||[]);
@@ -1573,15 +1584,15 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
   // Out-of-pool detection: if auto-detect resolves to a mfr outside allowed_sources, block search
   const outOfPool=!isAdmin&&detectedMfr&&!(user.allowed_sources||[]).includes(detectedMfr);
   return (
-    <div style={{width:268,flexShrink:0,background:bg,borderRight:`1px solid ${border}`,display:'flex',flexDirection:'column',padding:'20px 16px',gap:16,overflowY:'auto'}}>
+    <div style={{width:268,flexShrink:0,background:deactivated?(dark?'#111111':'#fafafa'):bg,borderRight:`1px solid ${border}`,display:'flex',flexDirection:'column',padding:'20px 16px',gap:16,overflowY:'auto',filter:deactivated?'grayscale(0.4)':undefined}}>
       <div style={{fontSize:13,fontWeight:700,color:dark?'#94a3b8':'#374151',letterSpacing:'-0.01em'}}>Find Replacements</div>
       <div>
         <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em',color:textSec,marginBottom:5}}>Part Number</label>
         <input value={partNum} onChange={e=>handlePartNumChange(e.target.value)}
           placeholder={({'kubler':'e.g. 8.KIS40.1342.1024','epc':'e.g. 15S-21-S-1024-A-OC-M1-F00-S','lika':'e.g. C50-L1-1024-BNF-06-P-K-E','sick':'e.g. DBS60E-S4CC01024'})[source]||'e.g. 8.KIS40.1342.1024'}
-          disabled={locked}
-          style={{width:'100%',boxSizing:'border-box',padding:'9px 10px',fontFamily:'IBM Plex Mono, monospace',fontSize:13,background:locked?(dark?'#1e293b':'#f8fafc'):inputBg,border:`1px solid ${border}`,borderRadius:6,color:locked?textSec:textPri,outline:'none'}}
-          onFocus={e=>{if(!locked)e.target.style.borderColor='#1a3570';}} onBlur={e=>e.target.style.borderColor=border}/>
+          disabled={searchBlocked}
+          style={{width:'100%',boxSizing:'border-box',padding:'9px 10px',fontFamily:'IBM Plex Mono, monospace',fontSize:13,background:searchBlocked?(dark?'#1e293b':'#f8fafc'):inputBg,border:`1px solid ${border}`,borderRadius:6,color:searchBlocked?textSec:textPri,outline:'none'}}
+          onFocus={e=>{if(!searchBlocked)e.target.style.borderColor='#1a3570';}} onBlur={e=>e.target.style.borderColor=border}/>
         {detectedMfr&&!outOfPool&&<div style={{marginTop:5,fontSize:11,color:dark?'#34d399':'#059669',display:'flex',alignItems:'center',gap:4}}>
           <svg width={10} height={10} viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M3 5l1.5 1.5L7 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           Auto-detected: {mfrLabel(detectedMfr)}
@@ -1664,7 +1675,7 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
 
       {/* Search button */}
       {(() => {
-        const btnDisabled=locked||!anyTarget||!partNum.trim()||detecting||outOfPool;
+        const btnDisabled=searchBlocked||!anyTarget||!partNum.trim()||detecting||outOfPool;
         return (
           <button onClick={()=>!btnDisabled&&onSearch(partNum,sourceRef.current,targets,topN,{tier2:normalizeWeights(t2Raw),tier3:normalizeWeights(t3Raw)},detectedMfr)} disabled={btnDisabled}
             style={{width:'100%',padding:'10px',background:btnDisabled?(dark?'#1e293b':'#f1f5f9'):'#2563eb',color:btnDisabled?textSec:'white',border:'none',borderRadius:7,fontFamily:'IBM Plex Sans, sans-serif',fontSize:13.5,fontWeight:600,cursor:btnDisabled?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7,boxShadow:btnDisabled?'none':'0 0 14px rgba(37,99,235,0.45)',transition:'box-shadow 0.2s,background 0.2s'}}>
@@ -1684,7 +1695,24 @@ function SearchPanel({ onSearch, user, searchState, dark, t2Raw, t3Raw, authToke
         }
       </div>
       {!isAdmin&&<SearchCounter used={user.searches_used} limit={user.searches_limit} dark={dark}/>}
-      {locked&&(
+
+      {/* Deactivated banner */}
+      {deactivated&&(
+        <div style={{background:dark?'#1c1917':'#f5f5f4',border:`1px solid ${dark?'#44403c':'#d6d3d1'}`,borderRadius:8,padding:'14px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:8}}>
+            <svg width={16} height={16} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke={dark?'#78716c':'#78716c'} strokeWidth="1.4"/><path d="M5.5 5.5v5M10.5 5.5v5" stroke={dark?'#78716c':'#78716c'} strokeWidth="1.6" strokeLinecap="round"/></svg>
+            <span style={{fontSize:12.5,fontWeight:700,color:dark?'#a8a29e':'#57534e'}}>Account Inactive</span>
+          </div>
+          <p style={{margin:'0 0 8px',fontSize:12,color:dark?'#78716c':'#78716c',lineHeight:1.5}}>This account has been deactivated. Searching is not available. Contact AQB Solutions to restore access.</p>
+          <a href="mailto:encodermatch@aqbsolutions.com" style={{display:'flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:dark?'#60a5fa':'#1a3570',textDecoration:'none'}}>
+            <svg width={12} height={12} viewBox="0 0 12 12" fill="none"><rect x="1" y="2.5" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2"/><path d="M1 4l5 3.5L11 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            encodermatch@aqbsolutions.com
+          </a>
+        </div>
+      )}
+
+      {/* Daily limit reached banner */}
+      {locked&&!deactivated&&(
         <div style={{background:dark?'#0f172a':'#fef2f2',border:`1px solid ${dark?'#7f1d1d':'#fecaca'}`,borderRadius:8,padding:'14px'}}>
           <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:8}}>
             <svg width={16} height={16} viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="8" rx="1.5" fill={dark?'#ef4444':'#dc2626'}/><path d="M5 7V5a3 3 0 016 0v2" stroke={dark?'#ef4444':'#dc2626'} strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>
@@ -1783,9 +1811,13 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
         });
         const data=await resp.json();
         if (resp.status===403||resp.status===429) {
-          // Search limit reached — update user state and show locked
-          if(setUser) setUser(u=>({...u,searches_used:u?.searches_limit||100}));
-          setSearchError('Daily search limit reached. Resets at midnight UTC. Contact your administrator.');
+          const errMsg = data?.detail || 'Search limit reached.';
+          const isLifetime = errMsg.toLowerCase().includes('lifetime');
+          if(!isLifetime) {
+            // Daily limit — trigger the locked banner
+            if(setUser) setUser(u=>({...u,searches_used:u?.searches_limit||100}));
+          }
+          setSearchError(errMsg);
           setSearchState('idle');
           return;
         }
@@ -1822,12 +1854,14 @@ function SearchPage({ user, dark, authToken, setUser, t2Raw, t3Raw, mfrs, mfrIds
   const bg=dark?'#0a0f1a':'#f4f6fa', textSec=dark?'#64748b':'#94a3b8';
 
   const [prefillToast,setPrefillToast]=React.useState(false);
+  // Set toast when replay arrives — separate from replayParams lifecycle so
+  // SearchPanel clearing replayParams doesn't cancel the dismiss timer.
+  React.useEffect(()=>{if(replayParams)setPrefillToast(true);},[replayParams]);
   React.useEffect(()=>{
-    if(!replayParams) return;
-    setPrefillToast(true);
-    const t=setTimeout(()=>setPrefillToast(false),3000);
+    if(!prefillToast) return;
+    const t=setTimeout(()=>setPrefillToast(false),2500);
     return()=>clearTimeout(t);
-  },[replayParams]);
+  },[prefillToast]);
   const errorBg=dark?'#450a0a':'#fef2f2', errorBorder=dark?'#7f1d1d':'#fecaca';
   // Total Silver rows — computed from mfrs array fetched at login.
   // Auto-updates on Silver refresh without code changes.
@@ -2111,6 +2145,24 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
     setConfirmDelete({ userId, name, role });
   };
 
+  const [togglingStatus, setTogglingStatus] = React.useState(null); // userId being toggled
+
+  const handleToggleStatus = async (userId, currentStatus, e) => {
+    e.stopPropagation();
+    const newStatus = currentStatus === 'deactivated' ? 'active' : 'deactivated';
+    setTogglingStatus(userId);
+    try {
+      const resp = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (resp.ok) { onRefresh && onRefresh(); }
+      else { const d = await resp.json().catch(()=>({})); alert(d.detail || 'Failed to update status.'); }
+    } catch (_) { alert('Error updating status.'); }
+    setTogglingStatus(null);
+  };
+
   const executeDelete = async () => {
     if (!confirmDelete) return;
     const { userId } = confirmDelete;
@@ -2217,16 +2269,17 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
 
   const statusBadge = (s) => {
     const cfg = {
-      active:  {bg:dark?'#14532d':'#dcfce7', text:dark?'#4ade80':'#15803d', label:'Active'},
-      locked:  {bg:dark?'#450a0a':'#fee2e2', text:dark?'#f87171':'#b91c1c', label:'Locked'},
-      invited: {bg:dark?'#1e3a5f':'#dbeafe', text:dark?'#60a5fa':'#1e40af', label:'Invited'},
+      active:      {bg:dark?'#14532d':'#dcfce7', text:dark?'#4ade80':'#15803d',   label:'Active'},
+      locked:      {bg:dark?'#450a0a':'#fee2e2', text:dark?'#f87171':'#b91c1c',   label:'Locked'},
+      invited:     {bg:dark?'#1e3a5f':'#dbeafe', text:dark?'#60a5fa':'#1e40af',   label:'Invited'},
+      deactivated: {bg:dark?'#1c1917':'#f5f5f4', text:dark?'#78716c':'#57534e',   label:'Inactive'},
     };
     const c = cfg[s] || cfg.active;
     return <span style={{fontSize:11,fontWeight:600,padding:'2px 7px',borderRadius:4,background:c.bg,color:c.text}}>{c.label}</span>;
   };
 
-  // Grid: [20px chevron] [name] [email] [daily searches] [users quota] [target dbs] [status] [delete]
-  const COLS = '90px 1fr 1fr 130px 110px 145px 70px 40px';
+  // Grid: [chevron] [name] [email] [daily searches] [users quota] [lifetime] [target dbs] [status] [actions]
+  const COLS = '90px 1fr 1fr 130px 110px 110px 145px 70px 64px';
 
   // ── Client admin row ───────────────────────────────────────────────────────
   const ClientAdminRow = ({ ca, isLastInList }) => {
@@ -2346,6 +2399,29 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
             )}
           </div>
 
+          {/* Lifetime searches */}
+          {(()=>{
+            const ltLimit = ca.lifetime_searches_limit;
+            const ltUsed  = ca.lifetime_searches_used || 0;
+            if(ltLimit==null) return <span style={{fontSize:11.5,color:textMut}}>—</span>;
+            const ltPct   = ltLimit > 0 ? ltUsed/ltLimit : 0;
+            const ltColor = ltPct>=1?'#dc2626':ltPct>=0.9?'#d97706':ltPct>=0.7?'#d97706':textPri;
+            return (
+              <div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
+                  <span style={{fontSize:11.5,fontWeight:600,color:ltColor,fontVariantNumeric:'tabular-nums'}}>
+                    {ltUsed} / {ltLimit}
+                    {ltPct>=1&&<span style={{marginLeft:5,fontSize:9,fontWeight:700,padding:'1px 4px',borderRadius:3,background:'#dc2626',color:'white'}}>FULL</span>}
+                  </span>
+                  <span style={{fontSize:10,color:textMut}}>{Math.round(ltPct*100)}%</span>
+                </div>
+                <div style={{height:4,borderRadius:2,background:dark?'#334155':'#e2e8f0',overflow:'hidden'}}>
+                  <div style={{width:`${Math.min(100,ltPct*100)}%`,height:'100%',borderRadius:2,background:ltColor,transition:'width 0.3s'}}/>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Allowed target DBs */}
           <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
             {ca.dbs.map(db=>(
@@ -2360,21 +2436,39 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
           {/* Status */}
           {statusBadge(ca.status)}
 
-          {/* Delete */}
-          {ca.id !== currentUserId
-            ? <button onClick={e=>handleDelete(ca.id,'clientadmin',ca.name,e)} disabled={deleting===ca.id}
-                style={{background:'transparent',border:'none',cursor:'pointer',
-                  color:dark?'#475569':'#94a3b8',padding:4,
-                  display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
-                onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
-                onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
-                title="Delete client admin">
-                <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
-                  <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+          {/* Actions: deactivate toggle + delete */}
+          <div style={{display:'flex',alignItems:'center',gap:4}}>
+            {/* Deactivate / Activate toggle — superadmin only */}
+            {isSuperAdmin&&ca.id!==currentUserId&&(
+              <button onClick={e=>handleToggleStatus(ca.id,ca.status,e)} disabled={togglingStatus===ca.id}
+                title={ca.status==='deactivated'?'Activate account':'Deactivate account'}
+                style={{background:'transparent',border:'none',cursor:togglingStatus===ca.id?'default':'pointer',
+                  color:ca.status==='deactivated'?(dark?'#4ade80':'#16a34a'):(dark?'#475569':'#94a3b8'),
+                  padding:4,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4,flexShrink:0}}
+                onMouseEnter={e=>{ if(togglingStatus!==ca.id) e.currentTarget.style.color=ca.status==='deactivated'?'#16a34a':'#d97706'; }}
+                onMouseLeave={e=>{ e.currentTarget.style.color=ca.status==='deactivated'?(dark?'#4ade80':'#16a34a'):(dark?'#475569':'#94a3b8'); }}>
+                {ca.status==='deactivated'
+                  ? <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 6.5l1.5 1.5 2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  : <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 4.5v4M8 4.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                }
               </button>
-            : <div style={{width:21}}/>  /* spacer to keep grid alignment */
-          }
+            )}
+            {/* Delete */}
+            {ca.id !== currentUserId
+              ? <button onClick={e=>handleDelete(ca.id,'clientadmin',ca.name,e)} disabled={deleting===ca.id}
+                  style={{background:'transparent',border:'none',cursor:'pointer',
+                    color:dark?'#475569':'#94a3b8',padding:4,
+                    display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4,flexShrink:0}}
+                  onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
+                  onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
+                  title="Delete client admin">
+                  <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
+                    <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              : <div style={{width:21}}/>
+            }
+          </div>
         </div>
 
         {/* Child end users — shown when expanded */}
@@ -2456,6 +2550,9 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
         {/* Users column — n/a for end users */}
         <span style={{fontSize:11.5,color:textMut}}>—</span>
 
+        {/* Lifetime column — n/a for end users */}
+        <span style={{fontSize:11.5,color:textMut}}>—</span>
+
         {/* Target DBs */}
         <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
           {u.dbs.map(db=>(
@@ -2470,18 +2567,34 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
         {/* Status */}
         {statusBadge(u.status)}
 
-        {/* Delete */}
-        <button onClick={e=>handleDelete(u.id,'enduser',u.name,e)} disabled={deleting===u.id}
-          style={{background:'transparent',border:'none',cursor:'pointer',
-            color:dark?'#475569':'#94a3b8',padding:4,
-            display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4}}
-          onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
-          onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
-          title="Delete user">
-          <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
-            <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
+        {/* Actions: deactivate toggle + delete */}
+        <div style={{display:'flex',alignItems:'center',gap:4}}>
+          {isSuperAdmin&&(
+            <button onClick={e=>handleToggleStatus(u.id,u.status,e)} disabled={togglingStatus===u.id}
+              title={u.status==='deactivated'?'Activate account':'Deactivate account'}
+              style={{background:'transparent',border:'none',cursor:togglingStatus===u.id?'default':'pointer',
+                color:u.status==='deactivated'?(dark?'#4ade80':'#16a34a'):(dark?'#475569':'#94a3b8'),
+                padding:4,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4,flexShrink:0}}
+              onMouseEnter={e=>{ if(togglingStatus!==u.id) e.currentTarget.style.color=u.status==='deactivated'?'#16a34a':'#d97706'; }}
+              onMouseLeave={e=>{ e.currentTarget.style.color=u.status==='deactivated'?(dark?'#4ade80':'#16a34a'):(dark?'#475569':'#94a3b8'); }}>
+              {u.status==='deactivated'
+                ? <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 6.5l1.5 1.5 2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                : <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 4.5v4M8 4.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              }
+            </button>
+          )}
+          <button onClick={e=>handleDelete(u.id,'enduser',u.name,e)} disabled={deleting===u.id}
+            style={{background:'transparent',border:'none',cursor:'pointer',
+              color:dark?'#475569':'#94a3b8',padding:4,
+              display:'flex',alignItems:'center',justifyContent:'center',borderRadius:4,flexShrink:0}}
+            onMouseEnter={e=>e.currentTarget.style.color='#dc2626'}
+            onMouseLeave={e=>e.currentTarget.style.color=dark?'#475569':'#94a3b8'}
+            title="Delete user">
+            <svg width={13} height={13} viewBox="0 0 13 13" fill="none">
+              <path d="M2 3h9M5 3V2h3v1M10 3l-.7 8H3.7L3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
     );
   };
@@ -2495,7 +2608,7 @@ function UserTable({ users, dark, authToken, onRefresh, onSelectUser, isSuperAdm
       {/* Column headers */}
       <div style={{display:'grid',gridTemplateColumns:COLS,padding:'10px 16px',gap:'0 8px',
         background:dark?'#0f172a':'#f8fafc',borderBottom:`1px solid ${border}`}}>
-        {['','User','Email','Daily Searches','Users','Target DBs','Status',''].map((h,i)=>(
+        {['','User','Email','Daily Searches','Users','Lifetime','Target DBs','Status',''].map((h,i)=>(
           <span key={i} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',
             letterSpacing:'0.06em',color:textMut}}>{h}</span>
         ))}
@@ -2588,6 +2701,11 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
   const [actPage,setActPage]   = React.useState(1);
   const ACT_PER_PAGE = 25;
 
+  // Lifetime search stats (fetched separately with high limit)
+  const [lifetimeCount,setLifetimeCount]       = React.useState(null);
+  const [childTotalCount,setChildTotalCount]   = React.useState(null);
+  const [loadingLifetime,setLoadingLifetime]   = React.useState(false);
+
   const bg=dark?'#0a0f1a':'#f4f6fa', cardBg=dark?'#111827':'#ffffff', border=dark?'#1e293b':'#e2e8f0';
   const textPri=dark?'#f1f5f9':'#111827', textSec=dark?'#94a3b8':'#64748b', textMut=dark?'#475569':'#94a3b8';
   const isClientAdmin = user?.role==='clientadmin';
@@ -2629,6 +2747,36 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
       .finally(()=>setLoadingF(false));
   },[tab,user,authToken]);
 
+  // ── Lifetime search count fetch (runs once on mount) ───────────────────────
+  React.useEffect(()=>{
+    if(!user||!authToken) return;
+    const isCaView = viewerRole==='superadmin' && user.role==='clientadmin';
+    const isEuView = user.role==='enduser';
+    if(!isCaView&&!isEuView) return;
+    const hdr={'Authorization':`Bearer ${authToken}`};
+    setLoadingLifetime(true);
+    if(isCaView){
+      Promise.all([
+        fetch(`/api/admin/users/${encodeURIComponent(user.email)}/history?limit=9999`,{headers:hdr}).then(r=>r.json()),
+        fetch('/api/admin/users',{headers:hdr}).then(r=>r.json()),
+      ]).then(async([histData,usersData])=>{
+        setLifetimeCount((histData.history||[]).length);
+        const children=(usersData.users||[]).filter(u=>(u.created_by||u.admin_email)===user.email);
+        if(!children.length){setChildTotalCount(0);setLoadingLifetime(false);return;}
+        const counts=await Promise.all(children.map(c=>
+          fetch(`/api/admin/users/${encodeURIComponent(c.userId||c.email)}/history?limit=9999`,{headers:hdr})
+            .then(r=>r.json()).then(d=>(d.history||[]).length).catch(()=>0)
+        ));
+        setChildTotalCount(counts.reduce((a,b)=>a+b,0));
+      }).catch(()=>{}).finally(()=>setLoadingLifetime(false));
+    } else {
+      fetch(`/api/admin/users/${encodeURIComponent(user.email)}/history?limit=9999`,{headers:hdr})
+        .then(r=>r.json()).then(d=>setLifetimeCount((d.history||[]).length))
+        .catch(()=>setLifetimeCount(0))
+        .finally(()=>setLoadingLifetime(false));
+    }
+  },[user,authToken]);
+
   const limitChanged = limitVal !== savedLimit;
   const adjustLimit = (d)=>{ if(!updatingLimit) setLimitVal(v=>Math.max(0,v+d)); };
   const applyLimit  = async()=>{
@@ -2662,6 +2810,25 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
       if(r.ok) setSavedUserQuota(userQuotaVal); else setUserQuotaVal(savedUserQuota);
     } catch(_){ setUserQuotaVal(savedUserQuota); }
     setUpdatingQuota(false);
+  };
+
+  // Lifetime search limit adjuster — superadmin editing a clientadmin
+  const initLtLimit = user?.lifetime_searches_limit ?? null;
+  const [ltLimitVal,setLtLimitVal]     = React.useState(initLtLimit);
+  const [savedLtLimit,setSavedLtLimit] = React.useState(initLtLimit);
+  const [updatingLtLimit,setUpdatingLtLimit] = React.useState(false);
+  const ltLimitChanged = ltLimitVal !== savedLtLimit;
+  const applyLtLimit = async()=>{
+    if(!ltLimitChanged||updatingLtLimit||ltLimitVal==null) return;
+    setUpdatingLtLimit(true);
+    try {
+      const r = await fetch(`/api/admin/users/${encodeURIComponent(user.email)}`,{
+        method:'PUT', headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`},
+        body:JSON.stringify({lifetime_searches_limit:ltLimitVal}),
+      });
+      if(r.ok) setSavedLtLimit(ltLimitVal); else setLtLimitVal(savedLtLimit);
+    } catch(_){ setLtLimitVal(savedLtLimit); }
+    setUpdatingLtLimit(false);
   };
 
   const fmtTime=(iso)=>{
@@ -2794,7 +2961,7 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
     setDownloadingZip(false);
   };
 
-  const scCfg={active:{bg:dark?'#14532d':'#dcfce7',text:dark?'#4ade80':'#15803d'},locked:{bg:dark?'#450a0a':'#fee2e2',text:dark?'#f87171':'#b91c1c'},invited:{bg:dark?'#1e3a5f':'#dbeafe',text:dark?'#60a5fa':'#1e40af'}};
+  const scCfg={active:{bg:dark?'#14532d':'#dcfce7',text:dark?'#4ade80':'#15803d'},locked:{bg:dark?'#450a0a':'#fee2e2',text:dark?'#f87171':'#b91c1c'},invited:{bg:dark?'#1e3a5f':'#dbeafe',text:dark?'#60a5fa':'#1e40af'},deactivated:{bg:dark?'#1c1917':'#f5f5f4',text:dark?'#78716c':'#57534e'}};
   const sc=scCfg[user?.status]||scCfg.active;
 
   const tabStyle=(id)=>({padding:'8px 16px',borderRadius:6,cursor:'pointer',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,border:'none',background:tab===id?(dark?'#1e293b':'#ffffff'):'transparent',color:tab===id?textPri:textMut,boxShadow:tab===id?(dark?'none':'0 1px 3px rgba(0,0,0,0.08)'):'none'});
@@ -2832,8 +2999,77 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
     const scoreColor =avgScore!=null?(avgScore>=85?(dark?'#4ade80':'#15803d'):avgScore>=70?(dark?'#fbbf24':'#d97706'):(dark?'#f87171':'#b91c1c')):textMut;
     const satisfColor=satisfPct!=null?(satisfPct>=70?(dark?'#4ade80':'#15803d'):satisfPct>=40?(dark?'#fbbf24':'#d97706'):(dark?'#f87171':'#b91c1c')):textMut;
 
+    // Lifetime stats cards config
+    const grandTotal = (lifetimeCount??0)+(childTotalCount??0);
+    const ltLoading  = loadingLifetime || lifetimeCount==null;
+    const fmt = n => ltLoading ? '…' : n;
+
+    // Grand Total threshold color (based on grandTotal vs CA lifetime_searches_limit)
+    const ltLimit = user?.lifetime_searches_limit ?? null;
+    const ltPct   = (ltLimit && !ltLoading) ? grandTotal / ltLimit : 0;
+    const gtBg    = ltPct>=1 ? (dark?'#3b0f0f':'#fee2e2')
+                  : ltPct>=0.9 ? (dark?'#2d1800':'#fef3c7')
+                  : ltPct>=0.7 ? (dark?'#2d1f00':'#fefce8')
+                  : (dark?'#0c1a3b':'#dbeafe');
+    const gtBdr   = ltPct>=1 ? (dark?'#7f1d1d':'#fca5a5')
+                  : ltPct>=0.9 ? (dark?'#78350f':'#fcd34d')
+                  : ltPct>=0.7 ? (dark?'#713f12':'#fde68a')
+                  : (dark?'#1e3a5f':'#93c5fd');
+    const gtClr   = ltPct>=1 ? (dark?'#f87171':'#dc2626')
+                  : ltPct>=0.9 ? (dark?'#fbbf24':'#d97706')
+                  : ltPct>=0.7 ? (dark?'#fcd34d':'#b45309')
+                  : (dark?'#60a5fa':'#1d4ed8');
+
     return (
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
+
+        {/* Lifetime stats — superadmin viewing a clientadmin (3 cards) */}
+        {viewerRole==='superadmin'&&isClientAdmin&&(
+          <div style={{display:'flex',gap:12}}>
+            {/* Grand Total — threshold-aware color */}
+            <div style={{flex:1,background:gtBg,border:`1px solid ${gtBdr}`,borderRadius:10,padding:'16px 20px',position:'relative'}}>
+              <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:gtClr,marginBottom:8}}>Grand Total</div>
+              <div style={{fontSize:28,fontWeight:700,color:gtClr,lineHeight:1}}>{fmt(grandTotal)}</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginTop:5}}>
+                <span style={{fontSize:11.5,color:gtClr,opacity:0.8}}>CA + all users</span>
+                {ltLimit!=null&&(
+                  <span style={{fontSize:10.5,fontWeight:600,color:gtClr,opacity:0.7}}>/ {ltLimit} lifetime</span>
+                )}
+              </div>
+              {ltLimit!=null&&!ltLoading&&(
+                <div style={{marginTop:8,height:4,borderRadius:2,background:dark?'#334155':'rgba(0,0,0,0.1)',overflow:'hidden'}}>
+                  <div style={{width:`${Math.min(100,ltPct*100)}%`,height:'100%',borderRadius:2,background:gtClr,transition:'width 0.3s'}}/>
+                </div>
+              )}
+              {ltPct>=1&&(
+                <div style={{marginTop:6,fontSize:10.5,fontWeight:700,color:gtClr}}>Lifetime limit reached — all searches blocked</div>
+              )}
+            </div>
+            {/* CA Searches */}
+            <div style={{flex:1,background:dark?'#052e16':'#dcfce7',border:`1px solid ${dark?'#14532d':'#86efac'}`,borderRadius:10,padding:'16px 20px'}}>
+              <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:dark?'#4ade80':'#15803d',marginBottom:8}}>CA Searches</div>
+              <div style={{fontSize:28,fontWeight:700,color:dark?'#4ade80':'#15803d',lineHeight:1}}>{fmt(lifetimeCount??0)}</div>
+              <div style={{fontSize:11.5,color:dark?'#4ade80':'#15803d',opacity:0.7,marginTop:5}}>Client Admin only</div>
+            </div>
+            {/* User Searches */}
+            <div style={{flex:1,background:dark?'#2e1065':'#f3e8ff',border:`1px solid ${dark?'#4c1d95':'#c4b5fd'}`,borderRadius:10,padding:'16px 20px'}}>
+              <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:dark?'#a78bfa':'#7c3aed',marginBottom:8}}>User Searches</div>
+              <div style={{fontSize:28,fontWeight:700,color:dark?'#a78bfa':'#7c3aed',lineHeight:1}}>{fmt(childTotalCount??0)}</div>
+              <div style={{fontSize:11.5,color:dark?'#a78bfa':'#7c3aed',opacity:0.7,marginTop:5}}>All users under CA</div>
+            </div>
+          </div>
+        )}
+
+        {/* Lifetime stats — viewing an enduser (1 card) */}
+        {user.role==='enduser'&&(
+          <div style={{display:'flex',gap:12}}>
+            <div style={{width:220,background:dark?'#0c1a3b':'#dbeafe',border:`1px solid ${dark?'#1e3a5f':'#93c5fd'}`,borderRadius:10,padding:'16px 20px',flexShrink:0}}>
+              <div style={{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',color:dark?'#60a5fa':'#1d4ed8',marginBottom:8}}>Total Searches</div>
+              <div style={{fontSize:28,fontWeight:700,color:dark?'#60a5fa':'#1d4ed8',lineHeight:1}}>{fmt(lifetimeCount??0)}</div>
+              <div style={{fontSize:11.5,color:dark?'#60a5fa':'#1d4ed8',opacity:0.7,marginTop:5}}>All time</div>
+            </div>
+          </div>
+        )}
 
         {/* Row 1 — existing session stat cards */}
         <div style={{display:'flex',gap:12}}>
@@ -3184,6 +3420,25 @@ function UserDetailPage({ user, dark, authToken, onBack, viewerRole }) {
                   </div>
                   <button onClick={applyUserQuota} disabled={!quotaChanged||updatingQuota} style={{width:'100%',padding:'6px',borderRadius:5,border:'none',background:quotaChanged&&!updatingQuota?'#7c3aed':(dark?'#1e293b':'#e2e8f0'),color:quotaChanged&&!updatingQuota?'white':(dark?'#475569':'#94a3b8'),cursor:quotaChanged&&!updatingQuota?'pointer':'default',fontFamily:'IBM Plex Sans, sans-serif',fontSize:12,fontWeight:600,transition:'all 0.15s'}}>
                     {updatingQuota?'Saving…':'Apply'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Lifetime search limit adjuster — superadmin only, clientadmin accounts only */}
+            {isClientAdmin && viewerRole==='superadmin' && ltLimitVal!=null && (
+              <>
+                <div style={{height:1,background:border}}/>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:textMut,marginBottom:4}}>Lifetime Search Limit</div>
+                  <div style={{fontSize:10,color:textMut,marginBottom:8}}>Used: {user?.lifetime_searches_used??0}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:6}}>
+                    <button onClick={()=>setLtLimitVal(v=>Math.max(0,v-10))} disabled={updatingLtLimit||ltLimitVal<=0} style={{width:24,height:24,border:`1px solid ${border}`,borderRadius:4,background:'transparent',cursor:(updatingLtLimit||ltLimitVal<=0)?'default':'pointer',color:textMut,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>−</button>
+                    <span style={{flex:1,textAlign:'center',fontSize:16,fontWeight:700,color:ltLimitChanged?(dark?'#60a5fa':'#1855d4'):textPri,fontVariantNumeric:'tabular-nums'}}>{ltLimitVal}</span>
+                    <button onClick={()=>setLtLimitVal(v=>Math.min(9999,v+10))} disabled={updatingLtLimit} style={{width:24,height:24,border:`1px solid ${dark?'#1e40af':'#bfdbfe'}`,borderRadius:4,background:dark?'#0f1f3d':'#eff6ff',cursor:updatingLtLimit?'default':'pointer',color:dark?'#60a5fa':'#1a3570',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15}}>+</button>
+                  </div>
+                  <button onClick={applyLtLimit} disabled={!ltLimitChanged||updatingLtLimit} style={{width:'100%',padding:'6px',borderRadius:5,border:'none',background:ltLimitChanged&&!updatingLtLimit?'#1a3570':(dark?'#1e293b':'#e2e8f0'),color:ltLimitChanged&&!updatingLtLimit?'white':(dark?'#475569':'#94a3b8'),cursor:ltLimitChanged&&!updatingLtLimit?'pointer':'default',fontFamily:'IBM Plex Sans, sans-serif',fontSize:12,fontWeight:600,transition:'all 0.15s'}}>
+                    {updatingLtLimit?'Saving…':'Apply'}
                   </button>
                 </div>
               </>
@@ -3764,6 +4019,7 @@ function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel, cre
     searches_limit: isSuperAdmin ? 50 : Math.min(10, searchesMax),     // capped to creator's limit
     allowed_results: isSuperAdmin ? 10 : (creatorUser?.allowed_results || 10), // inherited when clientadmin
     user_creation_limit: 10,                                           // clientadmin only
+    lifetime_searches_limit: 500,                                      // clientadmin only — combined pool
   });
   const [saving, setSaving] = React.useState(false);
   const [error,  setError]  = React.useState('');
@@ -3848,6 +4104,20 @@ function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel, cre
     </div>
   );
 
+  // ── Lifetime search limit — clientadmin role only ─────────────────────────
+  const LifetimeSearchesLimit = ()=>(
+    <div>
+      <label style={lStyle}>Lifetime Search Limit</label>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <NumInput value={form.lifetime_searches_limit} min={0} max={9999}
+          onChange={v=>setForm(f=>({...f,lifetime_searches_limit:v}))}
+          style={{...iStyle,width:100}}/>
+        <span style={{fontSize:12.5,color:textSec}}>searches total</span>
+      </div>
+      <div style={{fontSize:11,color:textMut,marginTop:4}}>Combined cap for this admin + all users they create. 0 = no limit.</div>
+    </div>
+  );
+
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleCreate = async()=>{
     setError('');
@@ -3869,7 +4139,10 @@ function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel, cre
         allowed_targets: form.targets,
         direction: 'source_only',
       };
-      if(form.role==='clientadmin') payload.user_creation_limit = form.user_creation_limit;
+      if(form.role==='clientadmin'){
+        payload.user_creation_limit = form.user_creation_limit;
+        if(form.lifetime_searches_limit > 0) payload.lifetime_searches_limit = form.lifetime_searches_limit;
+      }
       const resp = await fetch('/api/admin/users', {
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`},
@@ -3988,6 +4261,9 @@ function AddUserModal({ onClose, dark, authToken, onCreated, mfrs, mfrLabel, cre
 
           {/* User creation cap — only when creating a clientadmin */}
           {isSuperAdmin&&isClientAdmin&&<UserCreationLimit/>}
+
+          {/* Lifetime search pool — superadmin setting clientadmin only */}
+          {isSuperAdmin&&isClientAdmin&&<LifetimeSearchesLimit/>}
         </div>
 
         {/* Footer */}
@@ -4159,7 +4435,12 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
   // Role-based visibility
   const isSuperAdmin = user?.role === 'superadmin';
   const userCreationLimit = user?.user_creation_limit ?? null;
-  const quotaReached = !isSuperAdmin && userCreationLimit !== null && users.length >= userCreationLimit;
+  const isDeactivated = user?.status === 'deactivated';
+  // Count only endusers — the CA themselves are not in the list (excluded by backend),
+  // but using endUsers.length is also correct if any CA siblings exist in the same client.
+  const endUserCount = users.filter(u => u.role === 'enduser').length;
+  const quotaReached = !isSuperAdmin && userCreationLimit !== null && endUserCount >= userCreationLimit;
+  const addUserBlocked = quotaReached || isDeactivated;
 
   const fetchUsers=React.useCallback(async()=>{
     if(!authToken||API_MODE!=='live') return;
@@ -4179,6 +4460,8 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
         total_time_spent_minutes:u.total_time_spent_minutes||0,
         created_by:u.created_by||u.admin_email||'',
         user_creation_limit:u.user_creation_limit??null,
+        lifetime_searches_limit:u.lifetime_searches_limit??null,
+        lifetime_searches_used:u.lifetime_searches_used??0,
       }));
       setUsers(mapped);
     } catch(_){}
@@ -4214,7 +4497,7 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
               <div style={{display:'flex',flexDirection:'column',gap:4}}>
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
                   <span style={{fontSize:13,fontWeight:700,color:textPri,fontVariantNumeric:'tabular-nums'}}>
-                    {users.length}
+                    {endUserCount}
                     <span style={{fontWeight:400,color:textSec}}> / {userCreationLimit} users created</span>
                   </span>
                   {quotaReached&&(
@@ -4226,31 +4509,33 @@ function AdminPage({ dark, authToken, mfrs, mfrIds, mfrLabel, onMfrsUpdate, user
                 {/* Progress bar */}
                 <div style={{width:220,height:5,borderRadius:3,background:dark?'#1e293b':'#e2e8f0',overflow:'hidden'}}>
                   <div style={{
-                    width:`${Math.min(100,(users.length/userCreationLimit)*100)}%`,
+                    width:`${Math.min(100,(endUserCount/userCreationLimit)*100)}%`,
                     height:'100%',borderRadius:3,
-                    background:quotaReached?'#dc2626':users.length/userCreationLimit>0.8?'#d97706':'#7c3aed',
+                    background:quotaReached?'#dc2626':endUserCount/userCreationLimit>0.8?'#d97706':'#7c3aed',
                     transition:'width 0.3s ease',
                   }}/>
                 </div>
                 <span style={{fontSize:11,color:quotaReached?(dark?'#f87171':'#b91c1c'):textMut}}>
-                  {quotaReached?'No more users can be added':`${userCreationLimit-users.length} slot${userCreationLimit-users.length!==1?'s':''} remaining`}
+                  {quotaReached?'No more users can be added':`${userCreationLimit-endUserCount} slot${userCreationLimit-endUserCount!==1?'s':''} remaining`}
                 </span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Add User button — disabled at quota for clientadmin */}
+        {/* Add User button — disabled at quota or when CA is deactivated */}
         {tab==='users'&&(
           <button
-            onClick={()=>!quotaReached&&setShowModal(true)}
-            disabled={quotaReached}
-            title={quotaReached?`User limit of ${userCreationLimit} reached`:'Add a new user'}
+            onClick={()=>!addUserBlocked&&setShowModal(true)}
+            disabled={addUserBlocked}
+            title={isDeactivated?'Account is inactive — cannot add users':quotaReached?`User limit of ${userCreationLimit} reached`:'Add a new user'}
             style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:7,
-              background:quotaReached?(dark?'#1e293b':'#e2e8f0'):'#1855d4',
-              color:quotaReached?textMut:'white',
-              border:'none',fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,
-              cursor:quotaReached?'not-allowed':'pointer',marginTop:4}}>
+              background:addUserBlocked?(dark?'#1e293b':'#e2e8f0'):'#1855d4',
+              color:addUserBlocked?(dark?'#475569':'#94a3b8'):'white',
+              border:`1px solid ${addUserBlocked?(dark?'#334155':'#cbd5e1'):'transparent'}`,
+              fontFamily:'IBM Plex Sans, sans-serif',fontSize:13,fontWeight:600,
+              cursor:addUserBlocked?'not-allowed':'pointer',marginTop:4,
+              opacity:isDeactivated?0.55:1,transition:'opacity 0.15s'}}>
             <svg width={13} height={13} viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
             Add User
           </button>

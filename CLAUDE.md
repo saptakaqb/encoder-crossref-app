@@ -1,6 +1,6 @@
 # EncoderMatch — Claude Code Context
-**Company:** AQB Solutions Private Ltd. | **Version:** v2.4.1 | **Updated:** June 24, 2026
-**Deploy status:** 12 files changed locally — NOT yet deployed to ECS (last deploy ~June 4, 2026)
+**Company:** AQB Solutions Private Ltd. | **Version:** v2.4.2 | **Updated:** June 30, 2026
+**Deploy status:** Kübler service deployed June 29, 2026 — task def rev 8, IP `13.206.97.104`. ECR tag: `kubler-v2.4.2-2026-06-29`. Posital service at desired count 0 (intentional). **1 local change pending next deploy:** `static/EncoderMatch.jsx` (lifetime search count cards on UserDetailPage).
 
 ---
 
@@ -8,13 +8,13 @@
 
 AI-powered industrial encoder cross-reference platform. Input: source encoder part number (EPC, Sick, Posital, Lika, Baumer, Kübler). Output: ranked Kübler replacement candidates scored across 13 parameters via T1 hard stops → T2 physical match (70%) → T3 secondary specs (30%). Each result card shows: match score (0–100%), field-by-field breakdown, product URL, AI explanation (Claude Haiku). Users are sales engineers replacing industrial encoders without manually comparing datasheets.
 
-**Active clients:** Posital (live, ECS service `encodermatch-service`) | Kübler (pending first deploy, `encodermatch-kubler-service`)
+**Active clients:** Posital (service `encodermatch-service`, desired count 0) | Kübler (live, service `encodermatch-kubler-service`, IP `13.206.97.104`, task def rev 8)
 
 ---
 
 ## 2. AWS Infrastructure (all ap-south-1 / Mumbai)
 
-**ECS:** cluster `encoder-app-cluster`, Fargate, 2vCPU/8GB, port 8000, health check `GET /health` start-period 120s. Posital service: `encodermatch-service` (live). Kübler service: `encodermatch-kubler-service` (to be created on next deploy). Task def: `encodermatch-app` rev 7 (registered Jun 24 — both `CLAUDE_API_KEY` + `JWT_SECRET_KEY` moved to Secrets Manager `valueFrom`; rev 6 still live on Posital service until next deploy). No Elastic IP — IPs are dynamic. Use `python refresh_silver_ecs.py --dry-run` to discover current IP.
+**ECS:** cluster `encoder-app-cluster`, Fargate, 2vCPU/8GB, port 8000, health check `GET /health` start-period 120s. Posital service: `encodermatch-service` (desired count 0). Kübler service: `encodermatch-kubler-service` (live, IP `13.206.97.104`). Task def: `encodermatch-app` rev 8 (registered Jun 29 — corrects image URI from `encoder-crossref-app` → `encodermatch-app`; rev 7 had wrong ECR repo name). Secrets Manager `valueFrom` for `CLAUDE_API_KEY` + `JWT_SECRET_KEY` since rev 7. No Elastic IP — IPs are dynamic. Use `python refresh_silver_ecs.py --dry-run` to discover current IP.
 
 **ECR:** `155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app` — tagging: `latest` + `kubler-test-YYYY-MM-DD`. Old name `encoder-crossref-app` was wrong — all 7 references corrected June 22.
 
@@ -24,7 +24,7 @@ AI-powered industrial encoder cross-reference platform. Input: source encoder pa
 
 **EC2:** `encoder-crossref`, t3.small (upgrade to t3.medium pending — OOMs on Playwright). SSH key: `C:\Users\sadhy\Downloads\encoder-crossref-key.pem`. Purpose: Bronze1 PDF extraction, Bronze2 CSV production, scraping.
 
-**Env vars (ECS task def rev 7):** `AWS_REGION=ap-south-1`, `DYNAMO_USERS_TABLE=encodermatch_users`, `S3_BUCKET=aqb-data-analytics-demo`, `S3_ROOT=encoder_pipeline`, `CORS_ORIGINS`. **Secrets (valueFrom):** `CLAUDE_API_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/anthropic-api-key-wiWEcO` | `JWT_SECRET_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/jwt-secret-key-BrWF5C`. Local fallback: `config_claude.py` (gitignored) holds `CLAUDE_API_KEY` and `MODEL = "claude-haiku-4-5-20251001"`.
+**Env vars (ECS task def rev 8):** `AWS_REGION=ap-south-1`, `DYNAMO_USERS_TABLE=encodermatch_users`, `S3_BUCKET=aqb-data-analytics-demo`, `S3_ROOT=encoder_pipeline`, `CORS_ORIGINS`. **Secrets (valueFrom):** `CLAUDE_API_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/anthropic-api-key-wiWEcO` (updated Jun 29 — was JSON-wrapped, now plain string) | `JWT_SECRET_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/jwt-secret-key-BrWF5C`. Local fallback: `config_claude.py` (gitignored) holds `CLAUDE_API_KEY` and `MODEL = "claude-haiku-4-5-20251001"`.
 
 ---
 
@@ -49,24 +49,40 @@ AI-powered industrial encoder cross-reference platform. Input: source encoder pa
 
 ---
 
-## 4. Deploy Status — 12 Undeployed Files
+## 4. Deploy Status — ✅ Deployed June 29, 2026
 
-All changes are local only. Last ECS deploy was ~June 4.
+Kübler service deployed June 29 via task def rev 8 (`encodermatch-app:latest` — correct ECR repo). Handover tests passed (31/31 searches, 9/9 security guards). ECR tag: `kubler-v2.4.2-2026-06-29`. Task IP: `13.206.97.104`.
 
-| File | Change |
-|---|---|
-| `Dockerfile` | `logo2.webp` → `logo2.png` — **BLOCKING fix, already applied** |
-| `CLAUDE.md` | ECR repo name corrected (7 references) |
-| `main.py` | I-9 role guard, I-10/11 cross-client guards, I-12 user_creation_limit enforcement, I-22 zero-score backfill, UpdateUserRequest (Jun 17) |
-| `auth.py` | I-13 cascade delete (history+feedback on user delete), I-14 last-client warning, `_client_slug` routing fix (Jun 16) |
-| `static/EncoderMatch.jsx` | Jun 22 cosmetic fixes (footer version, selector footer text, history subtitle count) + all Jun 18 changes |
-| `matcher.py` | `_t1_exact_match_except_cable()`, T1_RULE_REGISTRY, cable T2 weight redistribution |
-| `matcher_config.json` | connection_type T1 rule: `forbidden_pairs` → `exact_match_except_cable` |
-| `static/index.html` | Favicon cache-bust link tag |
-| `dynamo_setup.py` | "DO NOT RE-RUN" safety warning |
-| `serializers.py` | Kübler display order codes, 31 families |
-| `url_lookup.py` | Kübler URL slug fixes |
-| `CHANGELOG.md` | v2.4.1 entry |
+**Note:** Task def rev 7 (registered Jun 24) had wrong ECR image URI `encoder-crossref-app:latest`. Rev 8 corrects this to `encodermatch-app:latest`. Always use rev 8+ for future deploys.
+
+| File | Change | Status |
+|---|---|---|
+| `Dockerfile` | `logo2.webp` → `logo2.png` | ✅ Live |
+| `main.py` | I-9 role guard, I-10/11 cross-client guards, I-12 user_creation_limit, I-22 zero-score backfill | ✅ Live |
+| `auth.py` | I-14 last-client warning, `_client_slug` routing fix | ✅ Live |
+| `static/EncoderMatch.jsx` | Jun 22 cosmetic fixes + Jun 18 changes | ✅ Live |
+| `matcher.py` | `_t1_exact_match_except_cable()`, T1_RULE_REGISTRY, cable T2 weight redistribution | ✅ Live |
+| `matcher_config.json` | connection_type T1 rule: `exact_match_except_cable` | ✅ Live |
+| `static/index.html` | Favicon cache-bust | ✅ Live |
+| `dynamo_setup.py` | "DO NOT RE-RUN" safety warning | ✅ Live |
+| `serializers.py` | Kübler display order codes, 31 families | ✅ Live |
+| `url_lookup.py` | Kübler URL slug fixes | ✅ Live |
+| `CHANGELOG.md` | v2.4.1 entry | ✅ Live |
+
+**v2.4.2 additions (deployed June 29, same task def rev 8, ECR tag `kubler-v2.4.2-2026-06-29`):**
+
+| File | Change | Status |
+|---|---|---|
+| `db_load.py` | Posital partial matching (Stage 2d LIKE search), `POSITAL_FAMILY_PREFIXES`, `mfr_hint` for Posital codes | ✅ Live |
+| `matcher.py` | Connection type scoring fix: M23↔M23 = 1.0, removed NaN redistribution for specific connectors | ✅ Live |
+| `serializers.py` | 4 new Kübler families: A02H (flange_type mode), H120 (fixed flange), Sendix 7100, Sendix 7120 | ✅ Live |
+| `static/EncoderMatch.jsx` | Copy button HTTP fallback (`execCommand`), prefill toast timer decoupled from replayParams | ✅ Live |
+
+**Local-only changes (June 30 — pending next deploy, next version v2.4.3):**
+
+| File | Change | Status |
+|---|---|---|
+| `static/EncoderMatch.jsx` | Lifetime search count cards on UserDetailPage: SA viewing CA → 3 cards (Grand Total, CA Searches, User Searches) at top of Overview; viewing enduser → 1 card (Total Searches). Fetches history with `limit=9999` for accurate lifetime counts. | 🔧 Local only |
 
 ---
 
@@ -80,20 +96,19 @@ aws ecr get-login-password --region ap-south-1 | `
 
 # Build + tag + push
 docker build -t encodermatch-app . --no-cache
-$TAG = "kubler-test-2026-06-24"
+$TAG = "kubler-v2.4.2-2026-06-29"  # update date/version each deploy
 docker tag encodermatch-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:latest
 docker tag encodermatch-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:$TAG
 docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:latest
 docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:$TAG
 
-# Deploy Posital (update existing) — use rev 7 explicitly (secrets migration)
-aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --task-definition encodermatch-app:7 --force-new-deployment --region ap-south-1
+# Deploy Posital (currently at desired count 0 — increment when ready)
+aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --task-definition encodermatch-app:8 --desired-count 1 --force-new-deployment --region ap-south-1
 
-# Deploy Kübler (CREATE NEW — service doesn't exist yet)
-aws ecs create-service --cluster encoder-app-cluster --service-name encodermatch-kubler-service `
-  --task-definition encodermatch-app:7 --desired-count 1 --launch-type FARGATE `
-  --network-configuration "awsvpcConfiguration={subnets=[<SUBNET_ID>],securityGroups=[<SG_ID>],assignPublicIp=ENABLED}" `
-  --region ap-south-1
+# Deploy Kübler (service EXISTS — use update-service, not create-service)
+aws ecs update-service --cluster encoder-app-cluster --service encodermatch-kubler-service `
+  --task-definition encodermatch-app:8 --force-new-deployment --region ap-south-1
+# Network config: subnet-0e9d3cc8ad3405cf1 | sg-07e286c96523529e5 | assignPublicIp=ENABLED
 
 # Get task IP (wait 90s after deploy for Silver download + DB build)
 python refresh_silver_ecs.py --dry-run
@@ -216,7 +231,7 @@ All 5 implemented as named functions in `T1_RULE_REGISTRY`. Config-driven via `t
 | 4 | `housing_diameter_mm` | `within_tolerance_pct` 10% | `solid_only` — skipped for hollow/null |
 | 5 | `connection_type_canonical` | `exact_match_except_cable` | Cable on either side → T1 skipped, falls to T2 |
 
-**Connection type dual role (v2.4.0):** Both sides specific connector (M12, M23, MS/MIL, etc.) → T1 enforces exact match AND T2 score set to NaN (0.15 weight redistributes proportionally to other 5 T2 fields via existing null-redistribution). Cable on either side → T1 skipped, T2 scores via `conn_compat_matrix` at 0.15 weight.
+**Connection type dual role (v2.4.2):** Both sides specific connector (M12, M23, MS/MIL, etc.) → T1 enforces exact match. T2 scores via `conn_compat_matrix` (M23↔M23=1.0, M12↔M23=0.5, etc.) at 0.15 weight — no NaN redistribution; same-connector matches now correctly contribute a 100% score rather than being zeroed out. Cable on either side → T1 skipped, T2 also scores via `conn_compat_matrix` at 0.15 weight.
 
 ### T2 Primary Score — 70% of final (weights sum to 1.0)
 | Field | Weight | Method |
@@ -268,13 +283,14 @@ cable↔cable=1.0 | cable↔M12/M23/M8/MS-MIL=0.3 | M12↔M23=0.5 | M12↔M8=0.3
 - `reload_silver()` — called by `/api/admin/refresh-silver`. Re-downloads + rebuilds + resets cached connection.
 - `SILVER_VIEW` — query target: `"encoders"` (native TABLE, Tier 1) or `"encoders_view"` (Parquet VIEW, Tier 2).
 - `POSITAL_EXITING_PARTS` — frozenset loaded from Bronze2 CSV at module level. Applied post-SQL in `fetch_candidates()`. If S3 read fails → empty frozenset, filter silently disabled.
-- `LIKA_FAMILY_PREFIXES` / `BAUMER_FAMILY_PREFIXES` — frozensets for mfr_hint detection in `_parse_order_code()`.
+- `LIKA_FAMILY_PREFIXES` / `BAUMER_FAMILY_PREFIXES` / `POSITAL_FAMILY_PREFIXES` — frozensets for mfr_hint detection in `_parse_order_code()`.
 
 **fetch_part() lookup stage sequence:**
 1. Exact `part_number` match in Silver
 2. Kübler decoder → targeted SQL (5-attempt widening): bore+output+supply+conn+IP → drop supply_max+IP → drop supply → drop conn → bore only
 3. EPC decoder → same 5-attempt widening. CPR override: when PPR known, `cpr_values` overridden to `[specific_ppr]` so scorer asks "does candidate cover THIS PPR?" not full family range.
 4. Lika positional decode (family=token[0], CPR=token[2] if decimal)
+4d. Posital prefix LIKE search (v2.4.2): `part_number LIKE 'OCD-INR00%'` — handles partial codes of any length. Silver product_family names ("Through Hollow", "Compact Magnetic") do NOT match Posital order code prefixes (OCD, UCD, UTD, UCF, UCE, UCU), so family-name lookup never works for Posital; this stage bypasses that entirely.
 5. PPR-aware family lookup (`cpr_values LIKE '%ppr%'` OR ppr_range covers ppr)
 6. Family-only LIKE fallback
 
@@ -454,15 +470,13 @@ SUPERADMIN_PASSWORD = "saptak@admin1111"
 - EPC 15T hollow_thru → Kübler: KIH50 result ~75–90%
 - Baumer EIL580 5000PPR → Kübler: result with low CPR score
 
-**Production Kübler clientadmin (real handover, not test):**
+**Production Kübler clientadmin — ✅ Handed over June 30:**
 ```python
-{"email": "kubler.admin@kubler-aqb.com", "name": "Kübler Admin", "role": "clientadmin",
- "client": "Kübler", "allowed_sources": ["kubler","epc","sick","posital","lika","baumer"],
- "allowed_targets": ["kubler"], "direction": "source_only",
- "searches_limit": 200, "allowed_results": 10, "user_creation_limit": 10}
+{"email": "pierre.brucker@kuebler.com", "name": "Pierre Brucker", "role": "clientadmin", "client": "Kuebler"}
 ```
+Credentials handed over to Kübler client June 30, 2026. Account active, first login June 30 07:06 IST.
 
-**Cleanup after review:** delete `kubler.ca.test@kubler-test.com` + `kubler.eu.test@kubler-test.com` (eu2/eu3 auto-deleted during test run).
+**Cleanup after review:** ✅ Done June 30 — all test accounts deleted. DynamoDB history/feedback/errors wiped (~596 rows across 15 tables) for a clean production start. Only 3 accounts remain: `akshay.b@aqbsolutions.com`, `saptak.s@aqbsolutions.com` (superadmins), `pierre.brucker@kuebler.com` (Kübler CA).
 
 ---
 
@@ -484,16 +498,19 @@ SUPERADMIN_PASSWORD = "saptak@admin1111"
 14. **Score columns: `sc_t2_{field}` and `sc_t3_{field}`** — no leading underscore
 15. **`SELECT *` should be avoided** — pull only the ~25 columns needed by the scorer
 16. **Two services, one cluster** — deploying Posital never affects Kübler and vice versa
-
 ---
 
 ## 20. Pending Work & Useful Commands
 
 **Priority order:**
 1. Verify EPC families in Silver before handover: `python matcher.py --find-parts --mfr epc --fragment 15S` (also 15T, 15H, 25SP, 25T, 25H)
-2. Deploy (12 files ready, pre-flight done)
-3. Run `kubler_handover_tests.py` post-deploy
-4. Baumer absolute encoder scraping | Lika absolute Bronze2 fix (`interface_canonical=unknown` for AST6/AMT6 → SSI) | Gzip Posital Bronze2 | Absolute Silver schema design session
+2. ~~Deploy~~ ✅ Done — v2.4.2 deployed June 29, handover tests 31/31 passed
+3. ~~Run `kubler_handover_tests.py` post-deploy~~ ✅ Done
+4. ~~Clean up test accounts~~ ✅ Done June 30 — DynamoDB wiped clean, 3 accounts remain
+5. Deploy `static/EncoderMatch.jsx` lifetime search count cards (v2.4.3)
+6. Baumer absolute encoder scraping | Lika absolute Bronze2 fix (`interface_canonical=unknown` for AST6/AMT6 → SSI) | Gzip Posital Bronze2 | Absolute Silver schema design session
+
+**ECS cost tracking:** Kübler service started June 29 19:28 IST. Rate: ~$0.134/hr (2vCPU/8GB Fargate, ap-south-1). Note stop time when shutting down to calculate session cost.
 
 **Useful AWS CLI:**
 ```powershell
@@ -514,4 +531,4 @@ python refresh_silver_ecs.py --dry-run
 
 ---
 
-*AQB Solutions | v2.4.1 | June 23, 2026 | Next: Kübler handover deploy*
+*AQB Solutions | v2.4.2 | June 30, 2026 | Kübler live — IP 13.206.97.104, task def rev 8. Kübler CA pierre.brucker@kuebler.com handed over Jun 30. DB wiped clean. 1 local change pending (lifetime search cards → v2.4.3).*
