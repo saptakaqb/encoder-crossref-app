@@ -8,10 +8,17 @@ WORKDIR /app
 # ── System deps ────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    openssl \
     nginx \
     certbot \
     python3-certbot-nginx \
     && rm -rf /var/lib/apt/lists/*
+
+# ── SSL certificates (Cloudflare Origin Certificate for kuebler.equivato.ai) ─
+RUN mkdir -p /etc/nginx/ssl
+COPY certificate.txt /etc/nginx/ssl/certificate.crt
+COPY private_key.txt /etc/nginx/ssl/private.key
+RUN chmod 600 /etc/nginx/ssl/private.key
 
 # ── Python deps ────────────────────────────────────────────────────────────
 COPY requirements.txt .
@@ -33,6 +40,11 @@ RUN mkdir -p static
 COPY static/index.html static/index.html
 COPY static/EncoderMatch.jsx static/EncoderMatch.jsx
 COPY static/logo2.png static/logo2.png
+
+# ── nginx config + startup script ─────────────────────────────────────────
+COPY nginx.conf /etc/nginx/nginx.conf
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 # ── Environment defaults (override at runtime) ─────────────────────────────
 ENV AWS_REGION=ap-south-1
@@ -64,7 +76,7 @@ EXPOSE 443
 # When Silver reaches ~2–5GB, mount EFS to Fargate for persistent storage
 # across deployments — only delta files downloaded on redeploy, near-instant startup.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -f http://localhost/health || exit 1
 
 # ── Start ──────────────────────────────────────────────────────────────────
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["/app/start.sh"]

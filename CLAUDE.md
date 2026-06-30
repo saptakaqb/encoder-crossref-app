@@ -1,6 +1,6 @@
 # EncoderMatch — Claude Code Context
-**Company:** AQB Solutions Private Ltd. | **Version:** v2.4.2 | **Updated:** June 30, 2026
-**Deploy status:** Kübler service deployed June 29, 2026 — task def rev 8, IP `13.206.97.104`. ECR tag: `kubler-v2.4.2-2026-06-29`. Posital service at desired count 0 (intentional). **1 local change pending next deploy:** `static/EncoderMatch.jsx` (lifetime search count cards on UserDetailPage).
+**Company:** AQB Solutions Private Ltd. | **Version:** v2.4.3 | **Updated:** June 30, 2026
+**Deploy status:** Kübler service live at `https://kuebler.equivato.ai` (Cloudflare → nginx → uvicorn:8000). Task def rev 9, ECR tag `kubler-v2.4.3-2026-06-30`. Posital service at desired count 0 (intentional). v2.4.3 handover tests passed 14/14 (9 security + 5 new feature). DB wiped clean June 30 — only 2 SA accounts remain.
 
 ---
 
@@ -8,13 +8,13 @@
 
 AI-powered industrial encoder cross-reference platform. Input: source encoder part number (EPC, Sick, Posital, Lika, Baumer, Kübler). Output: ranked Kübler replacement candidates scored across 13 parameters via T1 hard stops → T2 physical match (70%) → T3 secondary specs (30%). Each result card shows: match score (0–100%), field-by-field breakdown, product URL, AI explanation (Claude Haiku). Users are sales engineers replacing industrial encoders without manually comparing datasheets.
 
-**Active clients:** Posital (service `encodermatch-service`, desired count 0) | Kübler (live, service `encodermatch-kubler-service`, IP `13.206.97.104`, task def rev 8)
+**Active clients:** Posital (service `encodermatch-service`, desired count 0) | Kübler (live, service `encodermatch-kubler-service`, domain `https://kuebler.equivato.ai`, task def rev 9)
 
 ---
 
 ## 2. AWS Infrastructure (all ap-south-1 / Mumbai)
 
-**ECS:** cluster `encoder-app-cluster`, Fargate, 2vCPU/8GB, port 8000, health check `GET /health` start-period 120s. Posital service: `encodermatch-service` (desired count 0). Kübler service: `encodermatch-kubler-service` (live, IP `13.206.97.104`). Task def: `encodermatch-app` rev 8 (registered Jun 29 — corrects image URI from `encoder-crossref-app` → `encodermatch-app`; rev 7 had wrong ECR repo name). Secrets Manager `valueFrom` for `CLAUDE_API_KEY` + `JWT_SECRET_KEY` since rev 7. No Elastic IP — IPs are dynamic. Use `python refresh_silver_ecs.py --dry-run` to discover current IP.
+**ECS:** cluster `encoder-app-cluster`, Fargate, 2vCPU/8GB. Posital service: `encodermatch-service` (desired count 0). Kübler service: `encodermatch-kubler-service` (live, `https://kuebler.equivato.ai`). Task def: `encodermatch-app` rev 9 (registered Jun 30 — adds port mappings 80+443 for nginx; rev 8 was ports 8000 only). Image runs nginx (80→443 redirect, 443 SSL with Cloudflare origin cert) + uvicorn on 127.0.0.1:8000. Health check: `GET /health` via nginx (port 80), start-period 120s. Secrets Manager `valueFrom` for `CLAUDE_API_KEY` + `JWT_SECRET_KEY` since rev 7. No Elastic IP — IPs are dynamic; Cloudflare A record must be updated after each task replacement. Use `python refresh_silver_ecs.py --dry-run` to discover current IP.
 
 **ECR:** `155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app` — tagging: `latest` + `kubler-test-YYYY-MM-DD`. Old name `encoder-crossref-app` was wrong — all 7 references corrected June 22.
 
@@ -24,7 +24,7 @@ AI-powered industrial encoder cross-reference platform. Input: source encoder pa
 
 **EC2:** `encoder-crossref`, t3.small (upgrade to t3.medium pending — OOMs on Playwright). SSH key: `C:\Users\sadhy\Downloads\encoder-crossref-key.pem`. Purpose: Bronze1 PDF extraction, Bronze2 CSV production, scraping.
 
-**Env vars (ECS task def rev 8):** `AWS_REGION=ap-south-1`, `DYNAMO_USERS_TABLE=encodermatch_users`, `S3_BUCKET=aqb-data-analytics-demo`, `S3_ROOT=encoder_pipeline`, `CORS_ORIGINS`. **Secrets (valueFrom):** `CLAUDE_API_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/anthropic-api-key-wiWEcO` (updated Jun 29 — was JSON-wrapped, now plain string) | `JWT_SECRET_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/jwt-secret-key-BrWF5C`. Local fallback: `config_claude.py` (gitignored) holds `CLAUDE_API_KEY` and `MODEL = "claude-haiku-4-5-20251001"`.
+**Env vars (ECS task def rev 9):** `AWS_REGION=ap-south-1`, `DYNAMO_USERS_TABLE=encodermatch_users`, `S3_BUCKET=aqb-data-analytics-demo`, `S3_ROOT=encoder_pipeline`, `CORS_ORIGINS`. **Secrets (valueFrom):** `CLAUDE_API_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/anthropic-api-key-wiWEcO` (updated Jun 29 — was JSON-wrapped, now plain string) | `JWT_SECRET_KEY` → `arn:aws:secretsmanager:ap-south-1:155930759570:secret:encoder-crossref/jwt-secret-key-BrWF5C`. Local fallback: `config_claude.py` (gitignored) holds `CLAUDE_API_KEY` and `MODEL = "claude-haiku-4-5-20251001"`.
 
 ---
 
@@ -43,82 +43,85 @@ AI-powered industrial encoder cross-reference platform. Input: source encoder pa
 | `url_lookup.py` | 8KB | Product URL resolution per manufacturer |
 | `static/EncoderMatch.jsx` | 310KB | Entire React frontend — single file, no build step |
 | `static/logo2.png` | 31KB | AQB logo — PNG not webp (Dockerfile COPY fixed Jun 22 — was BLOCKING) |
+| `nginx.conf` | 1KB | nginx reverse proxy: port 80 → 301 HTTPS, port 443 SSL → uvicorn:8000 |
+| `start.sh` | — | Container entrypoint: starts nginx (daemon off) then uvicorn. **Must have Unix LF line endings** — Windows CRLF breaks shebang on Linux. |
+| `certificate.txt` | — | Cloudflare Origin Certificate for `kuebler.equivato.ai` (gitignored, expires Jun 2027) |
+| `private_key.txt` | — | Private key for Cloudflare Origin Certificate (gitignored, chmod 600 in image) |
 | `dynamo_setup.py` | 7KB | ONE-TIME ONLY — creates DynamoDB tables + seeds superadmin accounts |
 | `refresh_silver_ecs.py` | 4KB | Hot-reload Silver on ECS without redeploy (auto-discovers task IP). WARNING: has hardcoded EMAIL + PASSWORD — move to env var |
-| `kubler_handover_tests.py` | — | Post-deploy end-to-end test suite (self-contained, fill in 3 values) |
+| `kubler_handover_tests.py` | — | Post-deploy end-to-end test suite — BASE_URL pre-set to `https://kuebler.equivato.ai`, 14 tests (T-A to T-N) |
 
 ---
 
-## 4. Deploy Status — ✅ Deployed June 29, 2026
+## 4. Deploy Status — ✅ Deployed June 30, 2026 (v2.4.3)
 
-Kübler service deployed June 29 via task def rev 8 (`encodermatch-app:latest` — correct ECR repo). Handover tests passed (31/31 searches, 9/9 security guards). ECR tag: `kubler-v2.4.2-2026-06-29`. Task IP: `13.206.97.104`.
+**Current:** task def rev 9, ECR tag `kubler-v2.4.3-2026-06-30`, live at `https://kuebler.equivato.ai`. Handover tests v2.4.3 passed 14/14 (31/31 searches, 9 security + 5 new feature tests). DB wiped clean — only 2 SA accounts remain.
 
-**Note:** Task def rev 7 (registered Jun 24) had wrong ECR image URI `encoder-crossref-app:latest`. Rev 8 corrects this to `encodermatch-app:latest`. Always use rev 8+ for future deploys.
+**Task def history:** rev 7 (wrong ECR repo name) → rev 8 (correct ECR, Jun 29) → rev 9 (adds ports 80+443 for nginx, Jun 30). Always use rev 9+ for future deploys.
 
-| File | Change | Status |
-|---|---|---|
-| `Dockerfile` | `logo2.webp` → `logo2.png` | ✅ Live |
-| `main.py` | I-9 role guard, I-10/11 cross-client guards, I-12 user_creation_limit, I-22 zero-score backfill | ✅ Live |
-| `auth.py` | I-14 last-client warning, `_client_slug` routing fix | ✅ Live |
-| `static/EncoderMatch.jsx` | Jun 22 cosmetic fixes + Jun 18 changes | ✅ Live |
-| `matcher.py` | `_t1_exact_match_except_cable()`, T1_RULE_REGISTRY, cable T2 weight redistribution | ✅ Live |
-| `matcher_config.json` | connection_type T1 rule: `exact_match_except_cable` | ✅ Live |
-| `static/index.html` | Favicon cache-bust | ✅ Live |
-| `dynamo_setup.py` | "DO NOT RE-RUN" safety warning | ✅ Live |
-| `serializers.py` | Kübler display order codes, 31 families | ✅ Live |
-| `url_lookup.py` | Kübler URL slug fixes | ✅ Live |
-| `CHANGELOG.md` | v2.4.1 entry | ✅ Live |
-
-**v2.4.2 additions (deployed June 29, same task def rev 8, ECR tag `kubler-v2.4.2-2026-06-29`):**
+**v2.4.3 changes (deployed June 30, task def rev 9, ECR tag `kubler-v2.4.3-2026-06-30`):**
 
 | File | Change | Status |
 |---|---|---|
-| `db_load.py` | Posital partial matching (Stage 2d LIKE search), `POSITAL_FAMILY_PREFIXES`, `mfr_hint` for Posital codes | ✅ Live |
-| `matcher.py` | Connection type scoring fix: M23↔M23 = 1.0, removed NaN redistribution for specific connectors | ✅ Live |
-| `serializers.py` | 4 new Kübler families: A02H (flange_type mode), H120 (fixed flange), Sendix 7100, Sendix 7120 | ✅ Live |
-| `static/EncoderMatch.jsx` | Copy button HTTP fallback (`execCommand`), prefill toast timer decoupled from replayParams | ✅ Live |
+| `Dockerfile` | nginx + certbot installed; Cloudflare origin cert + key copied in; `start.sh` entrypoint | ✅ Live |
+| `nginx.conf` | New file — port 80 → 301 HTTPS; port 443 SSL (Cloudflare origin cert) → proxy uvicorn:8000 | ✅ Live |
+| `start.sh` | New file — starts nginx + uvicorn (Unix LF line endings required) | ✅ Live |
+| `main.py` | `list_users` excludes calling CA from own user list (quota fix: 0/N not 1/N) | ✅ Live |
+| `main.py` | `lifetime_searches_limit` in `CreateUserRequest`, `UpdateUserRequest`, `_safe_user`; added to `SUPERADMIN_ONLY_FIELDS` | ✅ Live |
+| `auth.py` | `increment_search_count`: deactivated check (403), lifetime limit check, lifetime counter increment on CA record | ✅ Live |
+| `static/EncoderMatch.jsx` | `lifetime_searches_limit` as number input (not slider) in CA creation modal | ✅ Live |
+| `static/EncoderMatch.jsx` | Add User button disabled + greyed out when CA is deactivated (`status=deactivated`) | ✅ Live |
+| `static/EncoderMatch.jsx` | Lifetime search count cards on UserDetailPage (SA viewing CA: 3 cards; viewing enduser: 1 card) | ✅ Live |
+| `kubler_handover_tests.py` | Updated to v2.4.3: BASE_URL → `https://kuebler.equivato.ai`; 5 new tests T-J through T-N | ✅ Live |
 
-**Local-only changes (June 30 — pending next deploy, next version v2.4.3):**
+**Earlier versions (all live in current image):**
 
-| File | Change | Status |
-|---|---|---|
-| `static/EncoderMatch.jsx` | Lifetime search count cards on UserDetailPage: SA viewing CA → 3 cards (Grand Total, CA Searches, User Searches) at top of Overview; viewing enduser → 1 card (Total Searches). Fetches history with `limit=9999` for accurate lifetime counts. | 🔧 Local only |
+v2.4.1 (Jun 22): I-9/10/11/12/22 security guards, `_t1_exact_match_except_cable`, Kübler display order codes, URL slug fixes.
+v2.4.2 (Jun 29, rev 8): Posital LIKE search, M23↔M23 scoring fix, 4 new Kübler families, copy button HTTP fallback.
 
 ---
 
 ## 5. Deploy Procedure (Windows PowerShell)
 
-```powershell
-# ECR login
-aws ecr get-login-password --region ap-south-1 | `
-  docker login --username AWS --password-stdin `
+```bash
+# ECR login — use Bash tool (PowerShell pipe breaks aws→docker)
+aws ecr get-login-password --region ap-south-1 | \
+  docker login --username AWS --password-stdin \
   155930759570.dkr.ecr.ap-south-1.amazonaws.com
 
 # Build + tag + push
 docker build -t encodermatch-app . --no-cache
-$TAG = "kubler-v2.4.2-2026-06-29"  # update date/version each deploy
+TAG="kubler-v2.4.3-2026-06-30"  # update version/date each deploy
 docker tag encodermatch-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:latest
 docker tag encodermatch-app:latest 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:$TAG
 docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:latest
 docker push 155930759570.dkr.ecr.ap-south-1.amazonaws.com/encodermatch-app:$TAG
+```
 
+```powershell
 # Deploy Posital (currently at desired count 0 — increment when ready)
-aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --task-definition encodermatch-app:8 --desired-count 1 --force-new-deployment --region ap-south-1
+aws ecs update-service --cluster encoder-app-cluster --service encodermatch-service --task-definition encodermatch-app:9 --desired-count 1 --force-new-deployment --region ap-south-1
 
 # Deploy Kübler (service EXISTS — use update-service, not create-service)
 aws ecs update-service --cluster encoder-app-cluster --service encodermatch-kubler-service `
-  --task-definition encodermatch-app:8 --force-new-deployment --region ap-south-1
+  --task-definition encodermatch-app:9 --force-new-deployment --region ap-south-1
 # Network config: subnet-0e9d3cc8ad3405cf1 | sg-07e286c96523529e5 | assignPublicIp=ENABLED
 
-# Get task IP (wait 90s after deploy for Silver download + DB build)
+# Get new task IP (wait 90s after deploy for Silver download + DB build)
 python refresh_silver_ecs.py --dry-run
+# ⚠️  Update Cloudflare A record for kuebler.equivato.ai to new IP after each deploy
 
-# Health check
-curl http://<ECS_IP>:8000/health/db
+# Health check via domain (nginx must be running)
+curl https://kuebler.equivato.ai/health/db
 # Expected: {"status":"ok", all 6 manufacturers, total_rows ~1.65M}
 
 # Run handover tests
 python kubler_handover_tests.py
+```
+
+**⚠️ start.sh must have Unix LF line endings.** If edited on Windows, rewrite with:
+```bash
+printf '#!/bin/sh\nset -e\nnginx -g "daemon off;" &\nexec uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1\n' > start.sh
 ```
 
 **Local dev:**
@@ -150,7 +153,7 @@ Remove-Item "C:\tmp\silver\encoders.db" -ErrorAction SilentlyContinue
 - Clientadmin cannot delete superadmin or other clientadmins → 403
 - Clientadmin cannot delete/update cross-client users → 403
 - `user_creation_limit` enforced at API: count `created_by == caller.userId` before write
-- Clientadmin cannot PUT `searches_limit`, `allowed_results`, `user_creation_limit` → 403 (superadmin-only fields)
+- Clientadmin cannot PUT `searches_limit`, `allowed_results`, `user_creation_limit`, `lifetime_searches_limit`, `status` → 403 (superadmin-only fields)
 - Superadmin cannot delete clientadmin with active child users → 409
 
 **Full permission matrix:**
@@ -169,7 +172,8 @@ Remove-Item "C:\tmp\silver\encoders.db" -ErrorAction SilentlyContinue
 - Password: SHA-256 with salt `"encodermatch_2026"` → `hashlib.sha256(f"encodermatch_2026{password}".encode()).hexdigest()`
 - JWT: HS256, 24h expiry, claims: `sub`=email, `sid`=session_id
 - Single-session: login writes UUID to `active_session_id` in DynamoDB; every request validates token `sid` matches DB value → mismatch = 401 "Session superseded"
-- Search limit: atomic DynamoDB `ADD searches_used_today :one` with `ConditionExpression searches_used_today < :limit` → `ConditionalCheckFailedException` = 429. Day rollover: SET to 1 + stamp `last_search_date`. `status=locked` users can login but 429 on first search (by design — locked check is in `increment_search_count`, not login). `status=invited` blocked at login (403).
+- Search limit: atomic DynamoDB `ADD searches_used_today :one` with `ConditionExpression searches_used_today < :limit` → `ConditionalCheckFailedException` = 429. Day rollover: SET to 1 + stamp `last_search_date`. `status=locked` users can login but 429 on first search (by design — locked check is in `increment_search_count`, not login). `status=invited` blocked at login (403). `status=deactivated` (v2.4.3) — CA set by SA; login succeeds but search returns 403 "Account deactivated".
+- Lifetime limit (v2.4.3): CA record carries `lifetime_searches_limit` (SA-only field) and `lifetime_searches_used` counter. `increment_search_count` checks and increments `lifetime_searches_used` on the CA record for both CA and enduser searches → 429 when exhausted. 0 = no limit.
 - Heartbeat: `POST /api/auth/heartbeat` every 5min (tab-visible only) → atomic `ADD total_time_spent_minutes :5`
 
 ---
@@ -404,7 +408,7 @@ Single-file React, no build, loaded via CDN Babel transpile at runtime.
   "userId": "user@example.com",        "email": "user@example.com",
   "name": "Display Name",              "password_hash": "<sha256>",
   "role": "enduser|clientadmin|superadmin",
-  "client": "Kübler",                  "status": "active|locked|invited",
+  "client": "Kübler",                  "status": "active|locked|invited|deactivated",
   "searches_used_today": 0,            "last_search_date": "2026-06-23",
   "searches_limit": 50,                "allowed_results": 10,
   "allowed_sources": ["epc","sick"],   "allowed_targets": ["kubler"],
@@ -412,7 +416,8 @@ Single-file React, no build, loaded via CDN Babel transpile at runtime.
   "user_creation_limit": 10,           "created_by": "admin@example.com",
   "admin_email": "admin@example.com",  "created_at": "2026-06-23T10:00:00",
   "last_login": "...",                 "last_seen": "...",
-  "total_time_spent_minutes": 45,      "active_session_id": "<uuid>"
+  "total_time_spent_minutes": 45,      "active_session_id": "<uuid>",
+  "lifetime_searches_limit": 100,      "lifetime_searches_used": 12
 }
 ```
 
@@ -431,7 +436,7 @@ Single-file React, no build, loaded via CDN Babel transpile at runtime.
 | I-16 | main.py | `list_tables()` max 100, no pagination → fails at 50+ clients | Medium |
 | I-17 | All tables | No DynamoDB TTL — history/errors grow indefinitely | Medium |
 | I-18 | encodermatch_users | No GSI on client/role — all filtered queries are full scans | Medium |
-| I-21 | Silver/EPC | EPC 15S/15T/15H/25SP/25T/25H families may not be in Silver (~21/35 families ingested) | ⚠️ Verify before handover |
+| I-21 | Silver/EPC | EPC 15S/15T/15H/25SP/25T/25H families may not be in Silver (~21/35 families ingested) | ⚠️ Verify |
 | I-23 | JSX | Source-only enduser dropdown includes allowed_targets manufacturers | Low |
 | I-24 | JSX | Feedback `is_good_match` dual `=== true`/`=== 'true'` guards (legacy string) | Low |
 | I-25 | main.py | Multi-target search sequential not `asyncio.gather()` | Future |
@@ -445,38 +450,26 @@ Single-file React, no build, loaded via CDN Babel transpile at runtime.
 
 ## 18. Kübler Handover Tests
 
-**Before running:** fill in `kubler_handover_tests.py` lines 57–59:
-```python
-BASE_URL            = "http://<ECS_IP>:8000"
-SUPERADMIN_EMAIL    = "saptak.s@aqbsolutions.com"
-SUPERADMIN_PASSWORD = "saptak@admin1111"
-```
+**Run:** `$env:PYTHONIOENCODING="utf-8"; python kubler_handover_tests.py`
+(`PYTHONIOENCODING` needed on Windows for box-drawing chars in terminal output.)
 
-**Run:** `python kubler_handover_tests.py`
+`BASE_URL` is pre-set to `https://kuebler.equivato.ai`. Only fill in SA credentials if they change.
 
-**10 steps:** health check → SA login → cleanup old test accounts → create CA (`kubler.ca.test@kubler-test.com`, `KublerAdmin2026!`, limit=2, sources=[epc,sick,posital,lika,baumer], target=kubler) → create 2 endusers + attempt 3rd (must 403 — I-12 live test) → security tests T-A to T-F → 20 CA searches (4/mfr) → 12 EU searches → print result tables → write `kubler_test_results_YYYY-MM-DD.csv` + `kubler_test_summary_YYYY-MM-DD.txt`
+**11 steps (v2.4.3):** health check → SA login → cleanup old accounts → create CA (limit=2, lifetime_limit=50, sources=[epc,sick,posital,lika,baumer], target=kubler) → create 2 endusers + attempt 3rd → security tests T-A to T-I → 20 CA searches (4/mfr) → 11 EU searches → history check → **new feature tests T-J to T-N** → print tables → write CSV + summary
 
-**Security tests:**
-- T-A: CA PUT `searches_limit` on enduser → must 403 (I-15 guard)
-- T-B: CA PUT `allowed_results` on enduser → must 403
-- T-C: SA DELETE CA with active users → must 409
-- T-D: CA self-delete → must 400/403
-- T-E: search with disallowed source mfr (nidec) → must 403
-- T-F: delete enduser, verify history API still accessible
+**Security tests T-A to T-I (v2.4.1):**
+T-A: CA PUT `searches_limit` → 403 | T-B: CA PUT `allowed_results` → 403 | T-C: SA DELETE CA with users → 409 | T-D: CA self-delete → 400 | T-E: blocked source mfr → 403 | T-F: history survives user deletion | T-G: `allowed_results` cap enforced | T-H: CA uses kubler as source → 403 | T-I: cross-client isolation → 403
+
+**New feature tests T-J to T-N (v2.4.3):**
+T-J: CA PUT `lifetime_searches_limit` on EU → 403 | T-K: SA deactivates CA → CA search 403 | T-L: SA reactivates CA → CA search 200 | T-M: lifetime pool of 2 exhausted → 3rd search 429 | T-N: CA not in own user list (0 CA rows returned)
 
 **Key expected results:**
-- `DBS60E-RGFJD1024` (Sick hollow_blind) → Kübler: **⚠️ TEST CASE BROKEN** — Silver ETL misclassified this encoder as `hollow_thru` (should be `hollow_blind`; `DBS` = Blindhohlwelle in Sick naming). Returns 5 results instead of 0. Fix: correct `shaft_type` in Sick Silver ETL before using this as a handover test. Use a confirmed hollow_blind Sick encoder instead.
-- 3rd enduser: **403** "User creation limit of 2 reached"
-- EPC 15T hollow_thru → Kübler: KIH50 result ~75–90%
-- Baumer EIL580 5000PPR → Kübler: result with low CPR score
+- `DBS60E-RGFJD1024` → returns results (⚠️ known Silver ETL misclassification: `hollow_thru` should be `hollow_blind`)
+- 3rd enduser creation: **403** "User creation limit of 2 reached"
+- EPC 15T hollow_thru → KIH50 ~99%
+- Baumer EIL580 5000PPR → low CPR score ~55%
 
-**Production Kübler clientadmin — ✅ Handed over June 30:**
-```python
-{"email": "pierre.brucker@kuebler.com", "name": "Pierre Brucker", "role": "clientadmin", "client": "Kuebler"}
-```
-Credentials handed over to Kübler client June 30, 2026. Account active, first login June 30 07:06 IST.
-
-**Cleanup after review:** ✅ Done June 30 — all test accounts deleted. DynamoDB history/feedback/errors wiped (~596 rows across 15 tables) for a clean production start. Only 3 accounts remain: `akshay.b@aqbsolutions.com`, `saptak.s@aqbsolutions.com` (superadmins), `pierre.brucker@kuebler.com` (Kübler CA).
+**DB state (June 30):** ✅ All test + Kübler CA accounts deleted. Only 2 SA accounts remain: `akshay.b@aqbsolutions.com`, `saptak.s@aqbsolutions.com`.
 
 ---
 
@@ -503,14 +496,14 @@ Credentials handed over to Kübler client June 30, 2026. Account active, first l
 ## 20. Pending Work & Useful Commands
 
 **Priority order:**
-1. Verify EPC families in Silver before handover: `python matcher.py --find-parts --mfr epc --fragment 15S` (also 15T, 15H, 25SP, 25T, 25H)
-2. ~~Deploy~~ ✅ Done — v2.4.2 deployed June 29, handover tests 31/31 passed
-3. ~~Run `kubler_handover_tests.py` post-deploy~~ ✅ Done
-4. ~~Clean up test accounts~~ ✅ Done June 30 — DynamoDB wiped clean, 3 accounts remain
-5. Deploy `static/EncoderMatch.jsx` lifetime search count cards (v2.4.3)
-6. Baumer absolute encoder scraping | Lika absolute Bronze2 fix (`interface_canonical=unknown` for AST6/AMT6 → SSI) | Gzip Posital Bronze2 | Absolute Silver schema design session
+1. Verify EPC families in Silver: `python matcher.py --find-parts --mfr epc --fragment 15S` (also 15T, 15H, 25SP, 25T, 25H) — I-21 still open
+2. ~~Deploy v2.4.3~~ ✅ Done June 30 — task def rev 9, `https://kuebler.equivato.ai` live
+3. ~~Run handover tests~~ ✅ Done June 30 — 14/14 passed (31/31 searches)
+4. ~~Clean up accounts~~ ✅ Done June 30 — DB wiped, only 2 SA accounts remain
+5. Close port 8000 from security group `sg-07e286c96523529e5` — no longer needed now nginx is on 80/443
+6. Baumer absolute encoder scraping | Lika absolute Bronze2 fix | Gzip Posital Bronze2 | Absolute Silver schema design session
 
-**ECS cost tracking:** Kübler service started June 29 19:28 IST. Rate: ~$0.134/hr (2vCPU/8GB Fargate, ap-south-1). Note stop time when shutting down to calculate session cost.
+**ECS cost tracking:** Kübler service running since June 29 19:28 IST on task def rev 8; upgraded to rev 9 June 30. Rate: ~$0.134/hr (2vCPU/8GB Fargate, ap-south-1).
 
 **Useful AWS CLI:**
 ```powershell
@@ -531,4 +524,4 @@ python refresh_silver_ecs.py --dry-run
 
 ---
 
-*AQB Solutions | v2.4.2 | June 30, 2026 | Kübler live — IP 13.206.97.104, task def rev 8. Kübler CA pierre.brucker@kuebler.com handed over Jun 30. DB wiped clean. 1 local change pending (lifetime search cards → v2.4.3).*
+*AQB Solutions | v2.4.3 | June 30, 2026 | Kübler live — `https://kuebler.equivato.ai`, task def rev 9, nginx+SSL. Handover tests 14/14 passed. DB clean — 2 SA accounts only. Next: close port 8000 SG, verify EPC families (I-21).*

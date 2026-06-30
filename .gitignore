@@ -1,4 +1,6 @@
 ﻿config_claude.py
+certificate.txt
+private_key.txt
 __pycache__/
 *.pyc
 *.zip
